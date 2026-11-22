@@ -365,6 +365,10 @@ test('fixing a wrongly sorted payment also fixes the ones sorted alike and the r
     ['d', 'essentials', undefined, 'recurring-fixed'],
   ]);
   assert.deepEqual(matchRule('Zomato order', out.rules), { match: 'zomato', categoryId: 'frivolous', subcategoryId: 'eating-out', type: 'variable-one-time', note: 'Late dinner' });
+  // a remark stays on its own payment and is never remembered
+  const remarked = resortIn(s, { ...fixed, remark: 'Split with Ana' }, true);
+  assert.deepEqual(remarked.transactions.map((t) => t.remark), ['Split with Ana', undefined, undefined, undefined]);
+  assert.equal('remark' in (matchRule('Zomato order', remarked.rules) ?? {}), false);
   // only this one
   assert.equal(resortIn(s, fixed, false).transactions[1].categoryId, 'essentials');
   // back to "to sort", forgetting the remembered pick

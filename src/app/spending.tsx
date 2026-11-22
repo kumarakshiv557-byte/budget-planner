@@ -12,7 +12,7 @@ import { pickCsvText } from '@/lib/pick-file';
 import { useBudget } from '@/lib/store';
 import { ITEM_TYPES, PAYMENTS, isRecurring, type BudgetItem, type ItemType, type Payment, type Transaction } from '@/lib/types';
 
-type Draft = { id?: string; date: string; description: string; amount: string; categoryId: string | null; subcategoryId?: string; type: ItemType; payment?: Payment; note?: string };
+type Draft = { id?: string; date: string; description: string; amount: string; categoryId: string | null; subcategoryId?: string; type: ItemType; payment?: Payment; note?: string; remark?: string };
 
 type IncomeDraft = { id?: string; date: string; description: string; amount: string };
 
@@ -100,7 +100,7 @@ export default function SpendingScreen() {
   const save = () => {
     if (!draft || !valid) return;
     if (editing && editing.categoryId && editing.source !== 'manual') {
-      const { subcategoryId: _s, payment: _p, note: _n, ...base } = editing;
+      const { subcategoryId: _s, payment: _p, note: _n, remark: _r, ...base } = editing;
       resortTransaction(
         {
           ...base,
@@ -112,6 +112,7 @@ export default function SpendingScreen() {
           type: draft.type,
           ...(isRecurring(draft.type) && draft.payment ? { payment: draft.payment } : {}),
           ...(draft.note?.trim() ? { note: draft.note.trim() } : {}),
+          ...(draft.remark?.trim() ? { remark: draft.remark.trim() } : {}),
         },
         fixOthers,
       );
@@ -128,6 +129,7 @@ export default function SpendingScreen() {
       type: draft.type,
       payment: isRecurring(draft.type) ? draft.payment : undefined,
       note: draft.note?.trim() || undefined,
+      remark: draft.remark?.trim() || undefined,
       source: draft.id ? (state.transactions.find((t) => t.id === draft.id)?.source ?? 'manual') : 'manual',
       externalId: draft.id ? state.transactions.find((t) => t.id === draft.id)?.externalId : undefined,
     });
@@ -215,6 +217,14 @@ export default function SpendingScreen() {
             value={draft.note ?? ''}
             onChangeText={(note) => setDraft({ ...draft, note })}
             placeholder="e.g. Office lunch with the team"
+          />
+        </View>
+        <View style={styles.row}>
+          <Field
+            label="Remark (just this payment, not remembered)"
+            value={draft.remark ?? ''}
+            onChangeText={(remark) => setDraft({ ...draft, remark })}
+            placeholder="e.g. Split with Ana, she owes me half"
           />
         </View>
         <Label>Category</Label>
@@ -458,6 +468,11 @@ export default function SpendingScreen() {
                     {t.payment ? ` · ${paymentNote(t)}` : ''}
                     {t.source === 'csv' ? ' · imported' : t.source === 'revolut' ? ' · synced' : ''}
                   </ThemedText>
+                  {t.remark ? (
+                    <ThemedText type="small" style={{ fontStyle: 'italic' }}>
+                      💬 {t.remark}
+                    </ThemedText>
+                  ) : null}
                 </View>
                 <ThemedText type="small">{money(t.amount)}</ThemedText>
               </Pressable>
