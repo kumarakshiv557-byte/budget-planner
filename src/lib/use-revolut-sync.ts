@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as WebBrowser from 'expo-web-browser';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Platform } from 'react-native';
 
 import { newId } from './budget.ts';
 import { useBudget } from './store.tsx';
@@ -54,15 +55,23 @@ export function useRevolutSync() {
 
   const refreshStatus = useCallback(() => run('status', async () => setStatus(await syncApi.status(config))), [run, config]);
 
-  const connect = useCallback(
-    () =>
-      run('connect', async () => {
+  const connect = useCallback(() => {
+    // Browsers only allow a new tab opened directly from the click, so on web open it now and point it at
+    // the bank page once the server replies.
+    const tab = Platform.OS === 'web' ? window.open('about:blank', '_blank') : null;
+    return run('connect', async () => {
+      try {
         const { url } = await syncApi.connect(config);
-        await WebBrowser.openBrowserAsync(url);
+        if (tab) tab.location.href = url;
+        else if (Platform.OS === 'web') window.location.href = url;
+        else await WebBrowser.openBrowserAsync(url);
         setMessage({ text: 'After approving in Revolut, come back and press "Check connection".' });
-      }),
-    [run, config],
-  );
+      } catch (e) {
+        tab?.close();
+        throw e;
+      }
+    });
+  }, [run, config]);
 
   const syncNow = useCallback(
     () =>
