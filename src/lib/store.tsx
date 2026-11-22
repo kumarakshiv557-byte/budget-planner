@@ -10,6 +10,7 @@ const KEY = 'budget-planner/state/v1';
 type Actions = {
   saveItem: (item: Omit<BudgetItem, 'id'> & { id?: string }) => void;
   deleteItem: (id: string) => void;
+  /** Save a transaction. If an edit changes its type, remember that type for the same merchant. */
   saveTransaction: (t: Omit<Transaction, 'id'> & { id?: string }) => void;
   deleteTransaction: (id: string) => void;
   addTransactions: (ts: Transaction[]) => void;
@@ -17,7 +18,7 @@ type Actions = {
   applySync: (ts: Transaction[], at: string) => void;
   /** Recategorise a transaction and remember the choice for future imports. */
   recategorize: (id: string, categoryId: string, learn: boolean) => void;
-  updateCategory: (id: string, patch: Partial<Pick<Category, 'name' | 'defaultType'>>) => void;
+  updateCategory: (id: string, patch: Partial<Pick<Category, 'name'>>) => void;
   setCurrency: (currency: string) => void;
   resetAll: () => void;
 };
@@ -73,9 +74,19 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
       saveTransaction: (t) =>
         update((s) => {
           const full = { ...t, id: t.id ?? newId() } as Transaction;
-          const exists = s.transactions.some((x) => x.id === full.id);
+          const before = s.transactions.find((x) => x.id === full.id);
+          const exists = !!before;
+          let rules = s.rules;
+          const match = ruleFrom(full.description);
+          if (before && before.type !== full.type && full.source !== 'manual' && match && full.categoryId) {
+            const i = rules.findIndex((r) => r.match === match);
+            rules = i >= 0
+              ? rules.map((r, j) => (j === i ? { ...r, type: full.type } : r))
+              : [...rules, { match, categoryId: full.categoryId, type: full.type }];
+          }
           return {
             ...s,
+            rules,
             transactions: exists ? s.transactions.map((x) => (x.id === full.id ? full : x)) : [...s.transactions, full],
           };
         }),
@@ -86,18 +97,17 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
         update((s) => {
           const t = s.transactions.find((x) => x.id === id);
           if (!t) return s;
-          const type = s.categories.find((c) => c.id === categoryId)?.defaultType ?? t.type;
           const rules: CategoryRule[] = [...s.rules];
           const match = ruleFrom(t.description);
           if (learn && match) {
             const i = rules.findIndex((r) => r.match === match);
-            if (i >= 0) rules[i] = { match, categoryId };
+            if (i >= 0) rules[i] = { ...rules[i], categoryId };
             else rules.push({ match, categoryId });
           }
           return {
             ...s,
             rules,
-            transactions: s.transactions.map((x) => (x.id === id ? { ...x, categoryId, type } : x)),
+            transactions: s.transactions.map((x) => (x.id === id ? { ...x, categoryId } : x)),
           };
         }),
       updateCategory: (id, patch) =>

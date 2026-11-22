@@ -1,4 +1,4 @@
-import { categorize } from './budget.ts';
+import { categorize, typeFor } from './budget.ts';
 import type { BudgetState, Transaction } from './types.ts';
 import type { SyncedTransaction } from '../../supabase/functions/revolut-sync/eb-normalize.ts';
 
@@ -7,7 +7,6 @@ export type { SyncedTransaction };
 /** Turn rows from the sync backend into app transactions, skipping ones already imported. */
 export function mergeSynced(state: BudgetState, rows: SyncedTransaction[], idFor: () => string): Transaction[] {
   const seen = new Set(state.transactions.map((t) => t.externalId).filter(Boolean));
-  const typeOf = new Map(state.categories.map((c) => [c.id, c.defaultType]));
   const out: Transaction[] = [];
   for (const r of rows) {
     if (seen.has(r.externalId)) continue;
@@ -19,7 +18,7 @@ export function mergeSynced(state: BudgetState, rows: SyncedTransaction[], idFor
       description: r.description,
       amount: r.amount,
       categoryId,
-      type: (categoryId && typeOf.get(categoryId)) || 'variable-one-time',
+      type: typeFor(r.description, state.rules),
       source: 'revolut',
       externalId: r.externalId,
     });

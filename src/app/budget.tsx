@@ -9,7 +9,7 @@ import { currentMonth, itemAppliesTo, monthLabel } from '@/lib/budget';
 import { useBudget } from '@/lib/store';
 import { ITEM_TYPES, isRecurring, type BudgetItem, type ItemType } from '@/lib/types';
 
-type Draft = { id?: string; name: string; categoryId: string; type: ItemType; amount: string; startMonth: string; endMonth: string };
+type Draft = { id?: string; name: string; categoryId: string; type: ItemType | null; amount: string; startMonth: string; endMonth: string };
 
 const TYPE_LABEL = Object.fromEntries(ITEM_TYPES.map((t) => [t.id, t.label]));
 
@@ -24,7 +24,7 @@ export default function BudgetScreen() {
   const blank = (categoryId = state.categories[0]?.id ?? ''): Draft => ({
     name: '',
     categoryId,
-    type: state.categories.find((c) => c.id === categoryId)?.defaultType ?? 'recurring-fixed',
+    type: null,
     amount: '',
     startMonth: month,
     endMonth: '',
@@ -36,6 +36,7 @@ export default function BudgetScreen() {
   const amount = Number((draft?.amount ?? '').replace(',', '.'));
   const valid =
     !!draft &&
+    draft.type !== null &&
     draft.name.trim() !== '' &&
     Number.isFinite(amount) &&
     amount > 0 &&
@@ -43,7 +44,7 @@ export default function BudgetScreen() {
     (draft.endMonth === '' || /^\d{4}-\d{2}$/.test(draft.endMonth));
 
   const save = () => {
-    if (!draft || !valid) return;
+    if (!draft || !valid || !draft.type) return;
     saveItem({
       id: draft.id,
       name: draft.name.trim(),
@@ -83,19 +84,12 @@ export default function BudgetScreen() {
             options={state.categories.map((c) => ({ id: c.id, label: c.name }))}
             value={draft.categoryId}
             swatch={(id) => colorFor(state.categories.find((c) => c.id === id))}
-            onChange={(categoryId) =>
-              setDraft({
-                ...draft,
-                categoryId,
-                // follow the category's default type unless the user already chose one for an existing item
-                type: draft.id ? draft.type : (state.categories.find((c) => c.id === categoryId)?.defaultType ?? draft.type),
-              })
-            }
+            onChange={(categoryId) => setDraft({ ...draft, categoryId })}
           />
           <Label>Type</Label>
           <Chips options={ITEM_TYPES} value={draft.type} onChange={(type) => setDraft({ ...draft, type })} />
           <ThemedText type="small" themeColor="textSecondary">
-            {ITEM_TYPES.find((t) => t.id === draft.type)?.hint}
+            {draft.type ? ITEM_TYPES.find((t) => t.id === draft.type)?.hint : 'Pick how this line behaves over time.'}
           </ThemedText>
           <View style={[styles.row, { marginTop: Spacing.two }]}>
             <Field
