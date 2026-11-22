@@ -10,7 +10,8 @@
 //
 // Secrets: SYNC_SECRET (Edge Function secret, shared with revolut-sync). The push keys and the cron
 // secret live in Supabase Vault (bill_push_vapid_public, bill_push_vapid_private, bill_push_cron) and are
-// read through public.bill_push_secrets(), which only the service role may call.
+// read through public.bill_push_secrets(), which only the service role may call. The key pair is made
+// by this function on its first run; the cron secret is made in SQL and only pg_cron reads it.
 
 import { createClient } from 'npm:@supabase/supabase-js@2.49.4';
 import webpush from 'npm:web-push@3.6.7';
@@ -26,6 +27,18 @@ function vault() {
     const { data, error } = await db.rpc('bill_push_secrets');
     if (error) throw error;
     const s = Object.fromEntries(((data ?? []) as { name: string; secret: string }[]).map((r) => [r.name, r.secret]));
+    if (!s.bill_push_vapid_public || !s.bill_push_vapid_private) {
+      // First run: make the push key pair here and keep it in Vault, so it never leaves the server.
+      const keys = webpush.generateVAPIDKeys();
+      for (const [name, secret] of [['bill_push_vapid_public', keys.publicKey], ['bill_push_vapid_private', keys.privateKey]]) {
+        const { error: e } = await db.rpc('bill_push_store_secret', { p_name: name, p_secret: secret });
+        if (e) throw e;
+      }
+      // Read back what was stored, in case another request stored its pair first.
+      const { data: again, error: e2 } = await db.rpc('bill_push_secrets');
+      if (e2) throw e2;
+      for (const r of (again ?? []) as { name: string; secret: string }[]) s[r.name] = r.secret;
+    }
     webpush.setVapidDetails('https://kumarakshiv557-byte.github.io/budget-planner/', s.bill_push_vapid_public, s.bill_push_vapid_private);
     return s;
   })().catch((e) => {

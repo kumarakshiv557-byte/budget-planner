@@ -25,3 +25,22 @@ as $$
 $$;
 revoke all on function public.bill_push_secrets() from public, anon, authenticated;
 grant execute on function public.bill_push_secrets() to service_role;
+
+-- Lets the function save the push key pair it makes on first run (only if not already there).
+create or replace function public.bill_push_store_secret(p_name text, p_secret text)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if p_name not in ('bill_push_vapid_public', 'bill_push_vapid_private') then
+    raise exception 'not allowed';
+  end if;
+  if not exists (select 1 from vault.secrets where name = p_name) then
+    perform vault.create_secret(p_secret, p_name);
+  end if;
+end;
+$$;
+revoke all on function public.bill_push_store_secret(text, text) from public, anon, authenticated;
+grant execute on function public.bill_push_store_secret(text, text) to service_role;
