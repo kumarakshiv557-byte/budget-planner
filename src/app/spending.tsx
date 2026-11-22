@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { Platform, Pressable, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
@@ -195,6 +195,81 @@ export default function SpendingScreen() {
     return Number.isInteger(d) && d >= 1 && d <= 31 ? d : Number(t.date.slice(8));
   };
 
+  // Editing opens right under the tapped line; a new entry opens at the top.
+  const draftForm = draft ? (
+      <Card title={draft.id ? 'Edit spending' : 'New spending'}>
+        <View style={styles.row}>
+          <Field label="What" value={draft.description} onChangeText={(description) => setDraft({ ...draft, description })} placeholder="e.g. Groceries" />
+          <Field
+            label={`Amount (${state.currency})`}
+            value={draft.amount}
+            onChangeText={(a) => setDraft({ ...draft, amount: a })}
+            keyboardType="decimal-pad"
+            placeholder="0"
+          />
+          <Field label="Date (YYYY-MM-DD)" value={draft.date} onChangeText={(date) => setDraft({ ...draft, date })} />
+        </View>
+        <View style={styles.row}>
+          <Field
+            label="What's it for? (optional, remembered for this place)"
+            value={draft.note ?? ''}
+            onChangeText={(note) => setDraft({ ...draft, note })}
+            placeholder="e.g. Office lunch with the team"
+          />
+        </View>
+        <Label>Category</Label>
+        <CategoryPicker
+          categoryId={draft.categoryId}
+          subcategoryId={draft.subcategoryId}
+          onChange={(categoryId, subcategoryId) => setDraft({ ...draft, categoryId, subcategoryId })}
+        />
+        <Label>Type</Label>
+        <Chips options={ITEM_TYPES} value={draft.type} onChange={(type) => setDraft({ ...draft, type })} />
+        {isRecurring(draft.type) ? (
+          <>
+            <Label>How is it paid?</Label>
+            <Chips options={PAYMENTS} value={draft.payment ?? null} onChange={(payment) => setDraft({ ...draft, payment })} />
+          </>
+        ) : null}
+        {alike.length ? (
+          <Pressable
+            onPress={() => setFixOthers(!fixOthers)}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: fixOthers }}
+            style={{ marginTop: Spacing.two }}>
+            <ThemedText type="small">
+              {fixOthers ? '☑' : '☐'} Also fix the {alike.length} other payment{alike.length === 1 ? '' : 's'} from here sorted the same way, and
+              remember this for next time
+            </ThemedText>
+          </Pressable>
+        ) : null}
+        <View style={[styles.row, { marginTop: Spacing.three }]}>
+          <Button label="Save" onPress={save} disabled={!valid} />
+          <Button label="Cancel" kind="secondary" onPress={() => setDraft(null)} />
+          {editing?.categoryId && editing.source !== 'manual' ? (
+            <Button
+              label="Send back to sort"
+              kind="secondary"
+              onPress={() => {
+                unsortTransaction(editing.id, fixOthers);
+                setDraft(null);
+              }}
+            />
+          ) : null}
+          {draft.id ? (
+            <Button
+              label="Delete"
+              kind="danger"
+              onPress={() => {
+                deleteTransaction(draft.id!);
+                setDraft(null);
+              }}
+            />
+          ) : null}
+        </View>
+      </Card>
+  ) : null;
+
   return (
     <Screen title="Spending" right={<MonthSwitcher month={month} onChange={setMonth} />}>
       <ThemedText type="small" themeColor="textSecondary">
@@ -217,79 +292,7 @@ export default function SpendingScreen() {
         </ThemedText>
       ) : null}
 
-      {draft ? (
-        <Card title={draft.id ? 'Edit spending' : 'New spending'}>
-          <View style={styles.row}>
-            <Field label="What" value={draft.description} onChangeText={(description) => setDraft({ ...draft, description })} placeholder="e.g. Groceries" />
-            <Field
-              label={`Amount (${state.currency})`}
-              value={draft.amount}
-              onChangeText={(a) => setDraft({ ...draft, amount: a })}
-              keyboardType="decimal-pad"
-              placeholder="0"
-            />
-            <Field label="Date (YYYY-MM-DD)" value={draft.date} onChangeText={(date) => setDraft({ ...draft, date })} />
-          </View>
-          <View style={styles.row}>
-            <Field
-              label="What's it for? (optional, remembered for this place)"
-              value={draft.note ?? ''}
-              onChangeText={(note) => setDraft({ ...draft, note })}
-              placeholder="e.g. Office lunch with the team"
-            />
-          </View>
-          <Label>Category</Label>
-          <CategoryPicker
-            categoryId={draft.categoryId}
-            subcategoryId={draft.subcategoryId}
-            onChange={(categoryId, subcategoryId) => setDraft({ ...draft, categoryId, subcategoryId })}
-          />
-          <Label>Type</Label>
-          <Chips options={ITEM_TYPES} value={draft.type} onChange={(type) => setDraft({ ...draft, type })} />
-          {isRecurring(draft.type) ? (
-            <>
-              <Label>How is it paid?</Label>
-              <Chips options={PAYMENTS} value={draft.payment ?? null} onChange={(payment) => setDraft({ ...draft, payment })} />
-            </>
-          ) : null}
-          {alike.length ? (
-            <Pressable
-              onPress={() => setFixOthers(!fixOthers)}
-              accessibilityRole="checkbox"
-              accessibilityState={{ checked: fixOthers }}
-              style={{ marginTop: Spacing.two }}>
-              <ThemedText type="small">
-                {fixOthers ? '☑' : '☐'} Also fix the {alike.length} other payment{alike.length === 1 ? '' : 's'} from here sorted the same way, and
-                remember this for next time
-              </ThemedText>
-            </Pressable>
-          ) : null}
-          <View style={[styles.row, { marginTop: Spacing.three }]}>
-            <Button label="Save" onPress={save} disabled={!valid} />
-            <Button label="Cancel" kind="secondary" onPress={() => setDraft(null)} />
-            {editing?.categoryId && editing.source !== 'manual' ? (
-              <Button
-                label="Send back to sort"
-                kind="secondary"
-                onPress={() => {
-                  unsortTransaction(editing.id, fixOthers);
-                  setDraft(null);
-                }}
-              />
-            ) : null}
-            {draft.id ? (
-              <Button
-                label="Delete"
-                kind="danger"
-                onPress={() => {
-                  deleteTransaction(draft.id!);
-                  setDraft(null);
-                }}
-              />
-            ) : null}
-          </View>
-        </Card>
-      ) : null}
+      {draft && !draft.id ? draftForm : null}
 
       {newBill ? (
         <Card title={`Added "${newBill.name}" to your bills`} subtitle={`Due on day ${newBill.dueDay} each month. It shows in Bills to pay on Overview.`}>
@@ -440,9 +443,9 @@ export default function SpendingScreen() {
           list.map((t) => {
             const c = state.categories.find((x) => x.id === t.categoryId);
             return (
+              <Fragment key={t.id}>
               <Pressable
-                key={t.id}
-                onPress={() => edit(t)}
+                onPress={() => (draft?.id === t.id ? setDraft(null) : edit(t))}
                 style={{ flexDirection: 'row', gap: Spacing.two, alignItems: 'center', paddingVertical: 6, borderTopWidth: 1, borderColor: theme.border }}>
                 <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: colorFor(c) }} />
                 <View style={{ flex: 1 }}>
@@ -458,6 +461,8 @@ export default function SpendingScreen() {
                 </View>
                 <ThemedText type="small">{money(t.amount)}</ThemedText>
               </Pressable>
+              {draft?.id === t.id ? <View style={{ paddingBottom: Spacing.two }}>{draftForm}</View> : null}
+              </Fragment>
             );
           })
         )}
