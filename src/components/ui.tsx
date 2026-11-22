@@ -23,7 +23,7 @@ export function useCategoryColor() {
 
 export function useMoney() {
   const { state } = useBudget();
-  return (n: number) => formatMoney(n, state.currency);
+  return (n: number, cents = false) => formatMoney(n, state.currency, cents);
 }
 
 export function Screen({ title, children, right }: { title: string; children: ReactNode; right?: ReactNode }) {

@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { addMonths, categorize, typeFor, summarizeMonth, trend } from './budget.ts';
+import { addMonths, breakdown, categorize, typeFor, summarizeMonth, trend } from './budget.ts';
 import { initialState } from './defaults.ts';
 import { parseRevolutCsv } from './revolut-csv.ts';
 import type { BudgetState } from './types.ts';
@@ -127,4 +127,26 @@ test('type comes from the merchant rule, not the category', () => {
   assert.equal(typeFor('NETFLIX.COM', rules), 'recurring-fixed');
   assert.equal(typeFor('Amazon Marketplace', rules), 'variable-one-time');
   assert.equal(typeFor('Unknown shop', rules), 'variable-one-time');
+});
+
+test('breakdown groups a month by category or type, biggest first', () => {
+  const s = initialState();
+  s.items = [
+    { id: 'i1', name: 'Rent', categoryId: 'essentials', type: 'recurring-fixed', amount: 900, startMonth: '2026-01' },
+    { id: 'i2', name: 'Netflix', categoryId: 'subscriptions', type: 'recurring-fixed', amount: 13, startMonth: '2026-01' },
+    { id: 'i3', name: 'Old tax', categoryId: 'taxes', type: 'fixed-one-time', amount: 500, startMonth: '2026-03' },
+  ];
+  s.transactions = [
+    { id: 't1', date: '2026-11-02', description: 'Pingo Doce', amount: 40, categoryId: 'essentials', type: 'variable-one-time', source: 'manual' },
+    { id: 't2', date: '2026-11-03', description: 'Lidl', amount: 60, categoryId: 'essentials', type: 'variable-one-time', source: 'manual' },
+    { id: 't3', date: '2026-11-04', description: 'ATM', amount: 20, categoryId: null, type: 'variable-one-time', source: 'manual' },
+    { id: 't4', date: '2026-10-04', description: 'October', amount: 99, categoryId: null, type: 'variable-one-time', source: 'manual' },
+  ];
+  const cats = breakdown(s, '2026-11', 'category', 'actual');
+  assert.deepEqual(cats.map((g) => [g.key, g.total, g.lines.map((l) => l.id)]), [
+    ['essentials', 100, ['t2', 't1']],
+    ['none', 20, ['t3']],
+  ]);
+  const types = breakdown(s, '2026-11', 'type', 'forecast');
+  assert.deepEqual(types.map((g) => [g.key, g.total]), [['recurring-fixed', 913]]);
 });

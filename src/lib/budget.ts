@@ -113,14 +113,59 @@ export function typeFor(description: string, rules: BudgetState['rules']): ItemT
   return matchRule(description, rules)?.type ?? 'variable-one-time';
 }
 
-export function formatMoney(amount: number, currency: string) {
+export function formatMoney(amount: number, currency: string, cents = false) {
   try {
-    return new Intl.NumberFormat('en-IE', { style: 'currency', currency, maximumFractionDigits: 0 }).format(amount);
+    return new Intl.NumberFormat('en-IE', {
+      style: 'currency',
+      currency,
+      minimumFractionDigits: cents ? 2 : 0,
+      maximumFractionDigits: cents ? 2 : 0,
+    }).format(amount);
   } catch {
-    return `${currency} ${Math.round(amount)}`;
+    return `${currency} ${cents ? amount.toFixed(2) : Math.round(amount)}`;
   }
 }
 
 export function newId() {
   return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+}
+
+export type BreakdownDim = 'category' | 'type';
+export type BreakdownSide = 'actual' | 'forecast';
+/** One expense (actual) or budget line (forecast) inside a pie slice. */
+export type BreakdownLine = { id: string; label: string; date?: string; amount: number; categoryId: string | null; type: ItemType };
+
+/**
+ * Lines for one month grouped by category or type, for the pie charts.
+ * Keys are the category id ('none' for uncategorised) or the item type. Groups are sorted by total, largest first.
+ */
+export function breakdown(state: BudgetState, month: Month, dim: BreakdownDim, side: BreakdownSide) {
+  const lines: BreakdownLine[] =
+    side === 'actual'
+      ? transactionsIn(state.transactions, month).map((t) => ({
+          id: t.id,
+          label: t.description,
+          date: t.date,
+          amount: t.amount,
+          categoryId: t.categoryId,
+          type: t.type,
+        }))
+      : state.items
+          .filter((i) => itemAppliesTo(i, month))
+          .map((i) => ({ id: i.id, label: i.name, amount: i.amount, categoryId: i.categoryId, type: i.type }));
+  const groups = new Map<string, { key: string; total: number; lines: BreakdownLine[] }>();
+  for (const l of lines) {
+    const key = dim === 'category' ? (l.categoryId ?? 'none') : l.type;
+    let g = groups.get(key);
+    if (!g) groups.set(key, (g = { key, total: 0, lines: [] }));
+    g.total += l.amount;
+    g.lines.push(l);
+  }
+  return [...groups.values()]
+    .map((g) => ({
+      ...g,
+      total: round2(g.total),
+      lines: g.lines.sort((a, b) => b.amount - a.amount || (b.date ?? '').localeCompare(a.date ?? '')),
+    }))
+    .sort((a, b) => b.total - a.total);
 }
