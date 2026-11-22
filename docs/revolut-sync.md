@@ -35,6 +35,8 @@ Open <https://supabase.com/dashboard/project/lyfztzgubetxreowrylh/functions/secr
 2. Press **Connect Revolut** and approve in Revolut. You'll see "Revolut connected ✓".
 3. Back in the app, press **Check connection**, then **Sync now**.
 
+**From a phone (or any browser) instead:** open <https://lyfztzgubetxreowrylh.supabase.co/functions/v1/revolut-sync/start>, approve in Revolut, and you'll see "Revolut connected ✓". Starting this link needs no passphrase, because it only asks Revolut for permission. Reading your data still needs the passphrase from the app.
+
 After that the app syncs on its own when you open it, if it has been 6 hours. Revolut access lasts about 90 days; when it runs out, press **Connect Revolut** again.
 
 ## What gets imported

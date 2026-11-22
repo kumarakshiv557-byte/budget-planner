@@ -2,11 +2,13 @@
 //
 // Routes (all under /functions/v1/revolut-sync):
 //   POST /connect   → returns { url } to send you to Revolut's consent screen
+//   GET  /start     → redirects straight to Revolut's consent screen (open on a phone; no passphrase
+//                     needed because starting consent reveals nothing, and reading data still needs it)
 //   GET  /callback  → Enable Banking redirects here after consent; stores the session
 //   GET  /status    → { connected, validUntil, accounts }
 //   POST /sync      → { transactions } booked spending since body.dateFrom (default: 90 days ago)
 //
-// Every route except /callback requires the header `x-sync-secret: <SYNC_SECRET>`.
+// Every route except /start and /callback requires the header `x-sync-secret: <SYNC_SECRET>`.
 // Secrets (set in Supabase → Edge Functions → Secrets):
 //   EB_APP_ID        Enable Banking application ID
 //   EB_PRIVATE_KEY   contents of the .pem file Enable Banking downloaded
@@ -72,7 +74,7 @@ function authorised(req: Request) {
 
 type Aspsp = { name: string; country: string; maximum_consent_validity?: number };
 
-async function connect(req: Request) {
+async function createAuth(req: Request) {
   const name = env('EB_ASPSP_NAME') || 'Revolut';
   const country = env('EB_COUNTRY') || 'PT';
   const { aspsps } = await eb<{ aspsps: Aspsp[] }>(`/aspsps?country=${country}&psu_type=personal`);
@@ -95,16 +97,12 @@ async function connect(req: Request) {
       psu_type: 'personal',
     }),
   });
-  return json({ url: auth.url, bank: bank.name, validUntil });
+  return { url: auth.url, bank: bank.name, validUntil };
 }
 
+// Supabase shows function responses on *.supabase.co as plain text, so keep these pages plain.
 const page = (title: string, msg: string) =>
-  new Response(
-    `<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title>` +
-      `<body style="font-family:system-ui;max-width:420px;margin:15vh auto;padding:0 16px;text-align:center">` +
-      `<h2>${title}</h2><p>${msg}</p></body>`,
-    { headers: { 'Content-Type': 'text/html; charset=utf-8' } },
-  );
+  new Response(`${title}\n\n${msg}\n`, { headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
 
 async function callback(req: Request) {
   const url = new URL(req.url);
@@ -129,7 +127,7 @@ async function callback(req: Request) {
     valid_until: session.access.valid_until,
   });
   if (error) throw error;
-  return page('Revolut connected ✓', `${session.accounts.length} account(s) linked. You can close this page and press "Sync now" in the app.`);
+  return page('Revolut connected ✓', `${session.accounts.length} account(s) linked. You can close this page. Press "Sync now" in the budget app whenever you like.`);
 }
 
 async function latestSession() {
@@ -179,14 +177,15 @@ Deno.serve(async (req) => {
   const route = new URL(req.url).pathname.split('/').filter(Boolean).pop();
   try {
     if (route === 'callback' && req.method === 'GET') return await callback(req);
+    if (route === 'start' && req.method === 'GET') return Response.redirect((await createAuth(req)).url, 302);
     if (!authorised(req)) return json({ error: 'Wrong or missing sync passphrase.' }, 401);
-    if (route === 'connect' && req.method === 'POST') return await connect(req);
+    if (route === 'connect' && req.method === 'POST') return json(await createAuth(req));
     if (route === 'status' && req.method === 'GET') return await status();
     if (route === 'sync' && req.method === 'POST') return await sync(req);
     return json({ error: 'Not found' }, 404);
   } catch (e) {
     console.error(e);
     const msg = e instanceof Error ? e.message : String(e);
-    return route === 'callback' ? page('Something went wrong', msg) : json({ error: msg }, 500);
+    return route === 'callback' || route === 'start' ? page('Something went wrong', msg) : json({ error: msg }, 500);
   }
 });
