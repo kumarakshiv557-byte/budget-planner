@@ -454,7 +454,7 @@ export default function SpendingScreen() {
                     {t.description}
                   </ThemedText>
                   <ThemedText type="small" themeColor="textSecondary">
-                    {t.date} · {catLabel(t.categoryId, t.subcategoryId)} · {TYPE_LABEL[t.type]}
+                    {t.date} · {t.categoryId ? `${catLabel(t.categoryId, t.subcategoryId)} · ${TYPE_LABEL[t.type]}` : 'Unsorted'}
                     {t.payment ? ` · ${paymentNote(t)}` : ''}
                     {t.source === 'csv' ? ' · imported' : t.source === 'revolut' ? ' · synced' : ''}
                   </ThemedText>
