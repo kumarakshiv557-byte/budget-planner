@@ -28,37 +28,38 @@ export type SyncedTransaction = {
 };
 
 /**
- * Turn bank rows into spending rows.
+ * Split bank rows into spending and income.
  * - Only booked rows (status BOOK, or no status).
- * - Money out (DBIT) becomes positive spending. Money in (salary, refunds, top-ups) is skipped.
- * - Transfers to one of your own accounts (e.g. a Revolut pocket) are skipped.
+ * - Money out (DBIT) becomes positive spending; money in (CRDT) becomes positive income.
+ * - Transfers between your own accounts (e.g. a Revolut pocket) are skipped both ways.
  */
-export function normalizeTransactions(
+export function normalizeRows(
   accountUid: string,
   rows: EbTransaction[],
   ownIbans: string[] = [],
-): SyncedTransaction[] {
+): { spending: SyncedTransaction[]; income: SyncedTransaction[] } {
   const own = new Set(ownIbans.filter(Boolean).map((i) => i.replace(/\s/g, '').toUpperCase()));
-  const out: SyncedTransaction[] = [];
+  const spending: SyncedTransaction[] = [];
+  const income: SyncedTransaction[] = [];
   for (const t of rows) {
     if (t.status && t.status !== 'BOOK') continue;
     const raw = Number(t.transaction_amount?.amount);
     if (!Number.isFinite(raw) || raw === 0) continue;
     // Some banks send signed amounts instead of an indicator.
     const isDebit = t.credit_debit_indicator ? t.credit_debit_indicator === 'DBIT' : raw < 0;
-    if (!isDebit) continue;
-    const toIban = t.creditor_account?.iban?.replace(/\s/g, '').toUpperCase();
-    if (toIban && own.has(toIban)) continue;
+    const otherIban = (isDebit ? t.creditor_account?.iban : t.debtor_account?.iban)?.replace(/\s/g, '').toUpperCase();
+    if (otherIban && own.has(otherIban)) continue;
 
     const date = (t.booking_date || t.transaction_date || t.value_date || '').slice(0, 10);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+    const party = isDebit ? t.creditor?.name : t.debtor?.name;
     const description =
-      t.creditor?.name?.trim() ||
+      party?.trim() ||
       (t.remittance_information ?? []).join(' ').trim() ||
       t.note?.trim() ||
-      'Revolut payment';
+      (isDebit ? 'Revolut payment' : 'Money in');
     const ref = t.entry_reference || t.transaction_id || `${date}|${description}|${raw}`;
-    out.push({
+    (isDebit ? spending : income).push({
       externalId: `eb:${accountUid}:${ref}`,
       date,
       description,
@@ -66,7 +67,12 @@ export function normalizeTransactions(
       currency: t.transaction_amount.currency,
     });
   }
-  return out;
+  return { spending, income };
+}
+
+/** Spending rows only (money out, positive). */
+export function normalizeTransactions(accountUid: string, rows: EbTransaction[], ownIbans: string[] = []): SyncedTransaction[] {
+  return normalizeRows(accountUid, rows, ownIbans).spending;
 }
 
 /** Wrap a PKCS#1 RSA key ("BEGIN RSA PRIVATE KEY") in a PKCS#8 envelope so WebCrypto can import it. */

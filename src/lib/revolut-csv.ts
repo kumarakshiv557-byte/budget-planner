@@ -1,5 +1,5 @@
 import { categorize, typeFor } from './budget.ts';
-import type { BudgetState, Transaction } from './types.ts';
+import type { BudgetState, Income, Transaction } from './types.ts';
 
 /** Split one CSV line, honouring double-quoted fields. */
 export function parseCsvLine(line: string): string[] {
@@ -26,6 +26,7 @@ export function parseCsvLine(line: string): string[] {
 
 export type ImportResult = {
   transactions: Transaction[];
+  income: Income[];
   skippedDuplicates: number;
   skippedOther: number;
   currencies: string[];
@@ -38,7 +39,7 @@ const IGNORED_TYPES = new Set(['TOPUP', 'EXCHANGE', 'TRANSFER_BETWEEN_POCKETS', 
  * Parse a statement exported from the Revolut app (Statement → Excel/CSV).
  * Header: Type,Product,Started Date,Completed Date,Description,Amount,Fee,Currency,State,Balance
  * Spending (negative amounts) becomes a positive transaction; card refunds reduce spending.
- * Incoming money such as salary is skipped, because this app tracks spending.
+ * Incoming money such as salary becomes income. Top-ups and moves between your own pockets are skipped.
  */
 export function parseRevolutCsv(text: string, state: BudgetState, idFor: () => string): ImportResult {
   const lines = text.replace(/^﻿/, '').split(/\r?\n/).filter((l) => l.trim());
@@ -56,7 +57,8 @@ export function parseRevolutCsv(text: string, state: BudgetState, idFor: () => s
     throw new Error("This doesn't look like a Revolut statement. Expected Date, Description and Amount columns.");
   }
 
-  const existing = new Set(state.transactions.map((t) => t.externalId).filter(Boolean));
+  const existing = new Set([...state.transactions, ...(state.income ?? [])].map((t) => t.externalId).filter(Boolean));
+  const income: Income[] = [];
   const currencies = new Set<string>();
   const transactions: Transaction[] = [];
   let skippedDuplicates = 0;
@@ -72,13 +74,21 @@ export function parseRevolutCsv(text: string, state: BudgetState, idFor: () => s
     const description = f[iDesc] || '';
 
     const isRefund = type === 'CARD_REFUND' || type === 'REFUND';
-    if (
-      !/^\d{4}-\d{2}-\d{2}$/.test(date) ||
-      !Number.isFinite(amount) ||
-      status !== 'COMPLETED' ||
-      IGNORED_TYPES.has(type) ||
-      (amount >= 0 && !isRefund)
-    ) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(amount) || status !== 'COMPLETED' || IGNORED_TYPES.has(type)) {
+      skippedOther++;
+      continue;
+    }
+    if (amount > 0 && !isRefund) {
+      const externalId = `rvl:${f[iDate]}|${description}|${amount}|${fee}`;
+      if (existing.has(externalId)) {
+        skippedDuplicates++;
+        continue;
+      }
+      existing.add(externalId);
+      income.push({ id: idFor(), date, description, amount: Math.round((amount - fee) * 100) / 100, source: 'csv', externalId });
+      continue;
+    }
+    if (amount === 0) {
       skippedOther++;
       continue;
     }
@@ -104,5 +114,5 @@ export function parseRevolutCsv(text: string, state: BudgetState, idFor: () => s
       externalId,
     });
   }
-  return { transactions, skippedDuplicates, skippedOther, currencies: [...currencies] };
+  return { transactions, income, skippedDuplicates, skippedOther, currencies: [...currencies] };
 }

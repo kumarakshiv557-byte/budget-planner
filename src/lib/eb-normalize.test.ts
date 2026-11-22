@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createVerify, generateKeyPairSync } from 'node:crypto';
 import { test } from 'node:test';
 
-import { base64url, normalizeTransactions, pemToPkcs8 } from '../../supabase/functions/revolut-sync/eb-normalize.ts';
+import { base64url, normalizeRows, normalizeTransactions, pemToPkcs8 } from '../../supabase/functions/revolut-sync/eb-normalize.ts';
 
 test('Enable Banking rows: keeps booked debits, skips credits, pending and own transfers', () => {
   const rows = [
@@ -21,6 +21,18 @@ test('Enable Banking rows: keeps booked debits, skips credits, pending and own t
       ['eb:acc1:2026-11-05|Pingo Doce Lisboa|-45.1', '2026-11-05', 'Pingo Doce Lisboa', 45.1],
     ],
   );
+});
+
+test('Enable Banking rows: money in becomes income, except from your own accounts', () => {
+  const rows = [
+    { entry_reference: 'c1', transaction_amount: { amount: '2000', currency: 'EUR' }, credit_debit_indicator: 'CRDT', status: 'BOOK', booking_date: '2026-11-01', debtor: { name: 'Employer Lda' } },
+    { entry_reference: 'c2', transaction_amount: { amount: '300', currency: 'EUR' }, credit_debit_indicator: 'CRDT', status: 'BOOK', booking_date: '2026-11-02', debtor_account: { iban: 'LT12 3456' } },
+    { entry_reference: 'c3', transaction_amount: { amount: '50', currency: 'EUR' }, credit_debit_indicator: 'CRDT', status: 'PDNG', booking_date: '2026-11-03' },
+    { entry_reference: 'd1', transaction_amount: { amount: '9.99', currency: 'EUR' }, credit_debit_indicator: 'DBIT', status: 'BOOK', booking_date: '2026-11-04', creditor: { name: 'Spotify' } },
+  ];
+  const { spending, income } = normalizeRows('acc1', rows, ['LT123456']);
+  assert.deepEqual(income.map((t) => [t.externalId, t.description, t.amount]), [['eb:acc1:c1', 'Employer Lda', 2000]]);
+  assert.deepEqual(spending.map((t) => t.externalId), ['eb:acc1:d1']);
 });
 
 for (const format of ['pkcs8', 'pkcs1'] as const) {

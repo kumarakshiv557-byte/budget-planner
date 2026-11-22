@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { View } from 'react-native';
 
 import { BreakdownSheet } from '@/components/breakdown-sheet';
+import { MoneyFlowCard } from '@/components/money-flow-card';
 import { PairedBars, ShareBar, StatTile, TrendChart } from '@/components/charts';
 import { ThemedText } from '@/components/themed-text';
 import { Card, MonthSwitcher, Screen, styles, useCategoryColor, useMoney } from '@/components/ui';
@@ -22,7 +23,7 @@ export default function OverviewScreen() {
   const months = trend(state, month, 6);
   const catName = (id: string | null) => state.categories.find((c) => c.id === id)?.name ?? 'Uncategorised';
   const remaining = summary.forecast - summary.actual;
-  const empty = !state.items.length && !state.transactions.length;
+  const empty = !state.items.length && !state.transactions.length && !state.income.length;
 
   return (
     <Screen title="Overview" right={<MonthSwitcher month={month} onChange={setMonth} />}>
@@ -45,6 +46,8 @@ export default function OverviewScreen() {
           note={summary.forecast ? `${Math.round((summary.actual / summary.forecast) * 100)}% of forecast used` : undefined}
         />
       </View>
+
+      <MoneyFlowCard month={month} />
 
       <Card title="Forecast vs actual by category" subtitle="Tap a category to see it in a pie chart with its expenses.">
         <PairedBars

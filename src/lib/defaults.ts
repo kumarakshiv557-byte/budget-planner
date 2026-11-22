@@ -36,6 +36,7 @@ export function initialState(): BudgetState {
     categories: DEFAULT_CATEGORIES.map((c) => ({ ...c })),
     items: [],
     transactions: [],
+    income: [],
     rules: DEFAULT_RULES.map((r) => ({ ...r })),
   };
 }

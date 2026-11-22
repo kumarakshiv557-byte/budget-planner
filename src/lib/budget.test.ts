@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { addMonths, breakdown, categorize, typeFor, summarizeMonth, trend } from './budget.ts';
+import { addMonths, breakdown, moneyFlow, categorize, typeFor, summarizeMonth, trend } from './budget.ts';
 import { initialState } from './defaults.ts';
 import { parseRevolutCsv } from './revolut-csv.ts';
 import type { BudgetState } from './types.ts';
@@ -71,7 +71,7 @@ CARD_PAYMENT,Current,2026-11-06 10:00:00,,Zara,-60.00,0.00,EUR,PENDING,2490.00
 ATM,Current,2026-11-07 10:00:00,2026-11-07 10:00:00,Cash at ATM,-100.00,2.00,EUR,COMPLETED,2388.00
 CARD_REFUND,Current,2026-11-08 10:00:00,2026-11-08 10:00:00,Pingo Doce,5.10,0.00,EUR,COMPLETED,2393.10`;
 
-test('Revolut CSV: keeps spending and refunds, skips top-ups, income and pending', () => {
+test('Revolut CSV: keeps spending, refunds and income, skips top-ups and pending', () => {
   const s = initialState();
   const r = parseRevolutCsv(CSV, s, id);
   assert.deepEqual(
@@ -83,16 +83,19 @@ test('Revolut CSV: keeps spending and refunds, skips top-ups, income and pending
       ['2026-11-08', 'Pingo Doce', -5.1, 'essentials', 'variable-one-time'],
     ],
   );
-  assert.equal(r.skippedOther, 3);
+  assert.equal(r.skippedOther, 2);
+  assert.deepEqual(r.income.map((t) => [t.date, t.description, t.amount]), [['2026-11-05', 'Salary', 2000]]);
   assert.deepEqual(r.currencies, ['EUR']);
 });
 
 test('Revolut CSV: re-importing the same file adds nothing', () => {
   const s = initialState();
-  s.transactions = parseRevolutCsv(CSV, s, id).transactions;
+  const first = parseRevolutCsv(CSV, s, id);
+  s.transactions = first.transactions;
+  s.income = first.income;
   const again = parseRevolutCsv(CSV, s, id);
-  assert.equal(again.transactions.length, 0);
-  assert.equal(again.skippedDuplicates, 4);
+  assert.equal(again.transactions.length + again.income.length, 0);
+  assert.equal(again.skippedDuplicates, 5);
 });
 
 test('Revolut CSV: rejects files without the expected columns', () => {
@@ -149,4 +152,35 @@ test('breakdown groups a month by category or type, biggest first', () => {
   ]);
   const types = breakdown(s, '2026-11', 'type', 'forecast');
   assert.deepEqual(types.map((g) => [g.key, g.total]), [['recurring-fixed', 913]]);
+});
+
+test('money flow: income → month → categories (+ left over) → types', () => {
+  const s = initialState();
+  s.income = [
+    { id: 'i1', date: '2026-11-01', description: 'Employer Lda', amount: 2000, source: 'manual' },
+    { id: 'i2', date: '2026-11-15', description: 'Friend', amount: 50, source: 'manual' },
+  ];
+  s.transactions = [
+    { id: 't1', date: '2026-11-02', description: 'Pingo Doce', amount: 100, categoryId: 'essentials', type: 'variable-one-time', source: 'manual' },
+    { id: 't2', date: '2026-11-03', description: 'Rent', amount: 900, categoryId: 'essentials', type: 'recurring-fixed', source: 'manual' },
+    { id: 't3', date: '2026-11-04', description: 'Netflix', amount: 13, categoryId: 'subscriptions', type: 'recurring-fixed', source: 'manual' },
+  ];
+  const f = moneyFlow(s, '2026-11');
+  assert.equal(f.income, 2050);
+  assert.equal(f.spent, 1013);
+  assert.deepEqual(f.nodes.map((n) => [n.id, n.value]), [
+    ['in:Employer Lda', 2000],
+    ['in:Friend', 50],
+    ['total', 2050],
+    ['cat:essentials', 1000],
+    ['cat:subscriptions', 13],
+    ['leftover', 1037],
+    ['type:recurring-fixed', 913],
+    ['type:variable-one-time', 100],
+  ]);
+
+  s.income = [];
+  const g = moneyFlow(s, '2026-11');
+  assert.deepEqual(g.nodes.filter((n) => n.column === 0).map((n) => [n.id, n.value]), [['gap', 1013]]);
+  assert.ok(!g.nodes.some((n) => n.id === 'leftover'));
 });
