@@ -390,3 +390,20 @@ export function paymentNote(i: { payment?: 'auto' | 'manual'; dueDay?: number })
   if (i.payment === 'manual') return i.dueDay ? `Pay myself · due on day ${i.dueDay}` : 'Pay myself';
   return '';
 }
+
+/** "Pay myself" bills in the shape the reminder server needs. Bills without a due day count as due on the 1st, like the Bills card. */
+export function pushBills(items: BudgetItem[], currency: string) {
+  return items
+    .filter((i) => i.payment === 'manual' && isRecurring(i.type))
+    .map((i) => ({
+      id: i.id,
+      name: i.name,
+      amount: i.amount,
+      currency,
+      dueDay: i.dueDay ?? 1,
+      variable: i.type === 'recurring-variable',
+      startMonth: i.startMonth,
+      ...(i.endMonth ? { endMonth: i.endMonth } : {}),
+      paidMonths: (i.paidMonths ?? []).slice(-6),
+    }));
+}

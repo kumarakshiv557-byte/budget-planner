@@ -7,7 +7,8 @@ import { newId } from './budget.ts';
 import { useBudget } from './store.tsx';
 import { mergeSynced, mergeSyncedIncome, nextDateFrom, syncApi, type SyncConfig } from './sync.ts';
 
-const KEY = 'budget-planner/sync-config/v1';
+export const SYNC_CONFIG_KEY = 'budget-planner/sync-config/v1';
+const KEY = SYNC_CONFIG_KEY;
 /** Default backend: this project's Supabase function. Can be changed in Settings. */
 export const DEFAULT_SYNC_URL =
   process.env.EXPO_PUBLIC_SYNC_URL ?? 'https://lyfztzgubetxreowrylh.supabase.co/functions/v1/revolut-sync';
