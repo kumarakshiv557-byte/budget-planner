@@ -13,6 +13,8 @@ type Actions = {
   saveTransaction: (t: Omit<Transaction, 'id'> & { id?: string }) => void;
   deleteTransaction: (id: string) => void;
   addTransactions: (ts: Transaction[]) => void;
+  /** Add synced transactions and record the sync time. */
+  applySync: (ts: Transaction[], at: string) => void;
   /** Recategorise a transaction and remember the choice for future imports. */
   recategorize: (id: string, categoryId: string, learn: boolean) => void;
   updateCategory: (id: string, patch: Partial<Pick<Category, 'name' | 'defaultType'>>) => void;
@@ -79,6 +81,7 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
         }),
       deleteTransaction: (id) => update((s) => ({ ...s, transactions: s.transactions.filter((t) => t.id !== id) })),
       addTransactions: (ts) => update((s) => ({ ...s, transactions: [...s.transactions, ...ts] })),
+      applySync: (ts, at) => update((s) => ({ ...s, lastSyncedAt: at, transactions: [...s.transactions, ...ts] })),
       recategorize: (id, categoryId, learn) =>
         update((s) => {
           const t = s.transactions.find((x) => x.id === id);

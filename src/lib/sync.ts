@@ -1,0 +1,61 @@
+import { categorize } from './budget.ts';
+import type { BudgetState, Transaction } from './types.ts';
+import type { SyncedTransaction } from '../../supabase/functions/revolut-sync/eb-normalize.ts';
+
+export type { SyncedTransaction };
+
+/** Turn rows from the sync backend into app transactions, skipping ones already imported. */
+export function mergeSynced(state: BudgetState, rows: SyncedTransaction[], idFor: () => string): Transaction[] {
+  const seen = new Set(state.transactions.map((t) => t.externalId).filter(Boolean));
+  const typeOf = new Map(state.categories.map((c) => [c.id, c.defaultType]));
+  const out: Transaction[] = [];
+  for (const r of rows) {
+    if (seen.has(r.externalId)) continue;
+    seen.add(r.externalId);
+    const categoryId = categorize(r.description, state.rules);
+    out.push({
+      id: idFor(),
+      date: r.date,
+      description: r.description,
+      amount: r.amount,
+      categoryId,
+      type: (categoryId && typeOf.get(categoryId)) || 'variable-one-time',
+      source: 'revolut',
+      externalId: r.externalId,
+    });
+  }
+  return out;
+}
+
+export type SyncConfig = { url: string; secret: string };
+
+async function call<T>(cfg: SyncConfig, route: string, init: RequestInit = {}): Promise<T> {
+  const base = cfg.url.replace(/\/+$/, '');
+  const res = await fetch(`${base}/${route}`, {
+    ...init,
+    headers: { 'Content-Type': 'application/json', 'x-sync-secret': cfg.secret, ...(init.headers ?? {}) },
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error ?? `Sync server returned ${res.status}`);
+  return body as T;
+}
+
+export const syncApi = {
+  status: (cfg: SyncConfig) =>
+    call<{ connected: boolean; validUntil?: string; accounts?: { name?: string; currency?: string }[] }>(cfg, 'status'),
+  connect: (cfg: SyncConfig) => call<{ url: string; bank: string; validUntil: string }>(cfg, 'connect', { method: 'POST' }),
+  sync: (cfg: SyncConfig, dateFrom?: string) =>
+    call<{ transactions: SyncedTransaction[]; validUntil: string; dateFrom: string }>(cfg, 'sync', {
+      method: 'POST',
+      body: JSON.stringify(dateFrom ? { dateFrom } : {}),
+    }),
+};
+
+/** Re-fetch a few days before the last sync so late-booking card payments are not missed. */
+export function nextDateFrom(lastSyncedAt: string | undefined, now = new Date()): string | undefined {
+  if (!lastSyncedAt) return undefined; // server default: last ~90 days
+  const d = new Date(lastSyncedAt);
+  d.setUTCDate(d.getUTCDate() - 5);
+  const floor = new Date(now.getTime() - 89 * 86400_000);
+  return (d < floor ? floor : d).toISOString().slice(0, 10);
+}

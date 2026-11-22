@@ -5,6 +5,7 @@ import { useColorScheme } from 'react-native';
 
 import AppTabs from '@/components/app-tabs';
 import { BudgetProvider, useBudget } from '@/lib/store';
+import { useRevolutSync } from '@/lib/use-revolut-sync';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -16,12 +17,19 @@ function HideSplashWhenReady() {
   return null;
 }
 
+/** Runs the quiet background sync when the app opens. */
+function AutoSync() {
+  useRevolutSync();
+  return null;
+}
+
 export default function RootLayout() {
   const colorScheme = useColorScheme();
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
       <BudgetProvider>
         <HideSplashWhenReady />
+        <AutoSync />
         <AppTabs />
       </BudgetProvider>
     </ThemeProvider>

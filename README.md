@@ -17,6 +17,7 @@ A personal budget planner for web, iPhone and Android, built with Expo (one code
 
 - **Charts:** forecast vs actual by category and by type, share of spending by category, and a 6-month forecast vs actual trend.
 - **Revolut import:** in the Revolut app, go to your account → Statement → Excel/CSV, then use *Import Revolut CSV* on the Spending tab. Top-ups, income, currency exchanges and pending payments are skipped, refunds reduce spending, and importing the same file twice adds nothing. Common merchants are sorted into categories automatically; sort the rest once and the app remembers.
+- **Automatic Revolut sync** through Enable Banking, via a Supabase Edge Function. Setup: [docs/revolut-sync.md](docs/revolut-sync.md).
 
 Data is stored on the device only (browser storage on web).
 
@@ -40,8 +41,8 @@ npm run typecheck
 - `src/lib/` – plain TypeScript: types, default categories, forecast/actual maths, Revolut CSV parser, and the app state store.
 - `src/components/charts.tsx` – the charts (react-native-svg, works on web and mobile).
 - `src/app/` – the four screens: Overview, Budget, Spending, Settings.
+- `supabase/` – the Revolut sync Edge Function and its database migration.
 
 ## Next
 
-- Automatic Revolut sync through Enable Banking (EU open banking, works with Revolut's Portuguese/EU accounts). It needs a small backend to keep the API keys off the device.
-- Sync across devices (Supabase).
+- Sync budget data across devices (Supabase).

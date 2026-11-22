@@ -12,6 +12,7 @@
       ]
     }
   },
+  "exclude": ["node_modules", "supabase/functions/revolut-sync/index.ts"],
   "include": [
     "**/*.ts",
     "**/*.tsx",

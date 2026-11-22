@@ -198,8 +198,6 @@ export function TrendChart({ points }: { points: TrendPoint[] }) {
                 height={height}
                 fill="transparent"
                 onPress={() => setSel(i)}
-                // @ts-expect-error web-only hover prop passed through by react-native-svg
-                onMouseEnter={() => setSel(i)}
               />
             ))}
           </Svg>

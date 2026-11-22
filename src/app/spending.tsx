@@ -172,7 +172,7 @@ export default function SpendingScreen() {
                   <ThemedText type="small">{t.description}</ThemedText>
                   <ThemedText type="small" themeColor="textSecondary">
                     {t.date} · {c?.name ?? 'Uncategorised'} · {TYPE_LABEL[t.type]}
-                    {t.source === 'csv' ? ' · imported' : ''}
+                    {t.source === 'csv' ? ' · imported' : t.source === 'revolut' ? ' · synced' : ''}
                   </ThemedText>
                 </View>
                 <ThemedText type="small">{money(t.amount)}</ThemedText>
