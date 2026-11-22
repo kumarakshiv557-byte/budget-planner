@@ -4,6 +4,7 @@ import { View } from 'react-native';
 import { BillsCard } from '@/components/bills-card';
 import { BreakdownSheet } from '@/components/breakdown-sheet';
 import { MoneyFlowCard } from '@/components/money-flow-card';
+import { SubscriptionsCard } from '@/components/subscriptions-card';
 import { PairedBars, ShareBar, StatTile, TrendChart } from '@/components/charts';
 import { ThemedText } from '@/components/themed-text';
 import { Card, MonthSwitcher, Screen, styles, useCategoryColor, useMoney } from '@/components/ui';
@@ -49,6 +50,8 @@ export default function OverviewScreen() {
       </View>
 
       <BillsCard month={month} />
+
+      <SubscriptionsCard month={month} />
 
       <MoneyFlowCard month={month} />
 
