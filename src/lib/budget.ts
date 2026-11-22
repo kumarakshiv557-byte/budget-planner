@@ -451,3 +451,67 @@ export function pushBills(items: BudgetItem[], currency: string) {
       paidMonths: (i.paidMonths ?? []).slice(-6),
     }));
 }
+
+const sortKey = (t: Transaction) => [t.categoryId ?? '', t.subcategoryId ?? '', t.type, t.payment ?? ''].join('|');
+
+/**
+ * Other payments from the same place that were sorted exactly like `t` (same category, subcategory,
+ * type and payment tag): the ones a wrong "remember" pick will have sorted the same way.
+ */
+export function sortedAlike(s: BudgetState, t: Transaction): Transaction[] {
+  const match = ruleFrom(t.description);
+  if (!match || !t.categoryId) return [];
+  return s.transactions.filter(
+    (x) => x.id !== t.id && x.categoryId && sortKey(x) === sortKey(t) && ` ${x.description.toLowerCase()} `.includes(match),
+  );
+}
+
+/**
+ * Correct a sorted payment and, with `alsoOthers`, every payment from the same place that was sorted
+ * the same way, and the remembered choice for that place, so future payments land right too.
+ */
+export function resortIn(s: BudgetState, fixed: Transaction, alsoOthers: boolean): BudgetState {
+  const before = s.transactions.find((x) => x.id === fixed.id);
+  if (!before || !alsoOthers) return { ...s, transactions: s.transactions.map((x) => (x.id === fixed.id ? fixed : x)) };
+  const alike = new Set(sortedAlike(s, before).map((x) => x.id));
+  const match = ruleFrom(fixed.description);
+  const apply = (x: Transaction): Transaction => {
+    const { subcategoryId: _s, payment: _p, ...rest } = x;
+    return {
+      ...rest,
+      categoryId: fixed.categoryId,
+      ...(fixed.subcategoryId ? { subcategoryId: fixed.subcategoryId } : {}),
+      type: fixed.type,
+      ...(fixed.payment ? { payment: fixed.payment } : {}),
+      ...(fixed.note && (!x.note || x.note === before.note) ? { note: fixed.note } : {}),
+    };
+  };
+  let rules = s.rules;
+  if (match) {
+    if (!fixed.categoryId) rules = rules.filter((r) => r.match !== match);
+    else {
+      const rule = {
+        match,
+        categoryId: fixed.categoryId,
+        ...(fixed.subcategoryId ? { subcategoryId: fixed.subcategoryId } : {}),
+        type: fixed.type,
+        ...(fixed.payment ? { payment: fixed.payment } : {}),
+        ...(fixed.note ? { note: fixed.note } : {}),
+      };
+      rules = rules.some((r) => r.match === match) ? rules.map((r) => (r.match === match ? rule : r)) : [...rules, rule];
+    }
+  }
+  return {
+    ...s,
+    rules,
+    transactions: s.transactions.map((x) => (x.id === fixed.id ? fixed : alike.has(x.id) ? apply(x) : x)),
+  };
+}
+
+/** Send a payment (and, with `alsoOthers`, those sorted alike from the same place) back to "to sort", forgetting the remembered pick. */
+export function unsortIn(s: BudgetState, id: string, alsoOthers: boolean): BudgetState {
+  const t = s.transactions.find((x) => x.id === id);
+  if (!t) return s;
+  const { subcategoryId: _s, payment: _p, ...rest } = t;
+  return resortIn(s, { ...rest, categoryId: null, type: 'variable-one-time' }, alsoOthers);
+}
