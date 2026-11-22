@@ -44,13 +44,15 @@ export function MoneyFlowCard({ month }: { month: Month }) {
             ? catName(n.key)
             : n.kind === 'leftover'
               ? 'Left over'
+              : n.kind === 'subscriptions'
+                ? 'Subscriptions'
               : TYPE_LABEL[n.key as ItemType];
   const color = (n: FlowNode) =>
     n.kind === 'income' || n.kind === 'leftover'
       ? theme.good
       : n.kind === 'gap'
         ? theme.critical
-        : n.kind === 'total'
+        : n.kind === 'total' || n.kind === 'subscriptions'
           ? theme.textSecondary
           : n.kind === 'category'
             ? colorFor(state.categories.find((c) => c.id === n.key))
@@ -104,7 +106,9 @@ export function MoneyFlowCard({ month }: { month: Month }) {
     ? null
     : node.kind === 'gap'
       ? `You spent ${money(node.value, true)} more than the income recorded for ${monthLabel(month)}. That came from savings or from income the app hasn't seen yet. Add it on the Spending tab.`
-      : node.kind === 'leftover'
+      : node.kind === 'subscriptions'
+        ? `Subscriptions are debited automatically, so they're kept as one block here and listed on their own in the Subscriptions card.`
+        : node.kind === 'leftover'
         ? `${money(node.value, true)} of ${monthLabel(month)}'s income hasn't been spent.`
         : node.kind === 'total'
           ? `Income ${money(flow.income, true)} · spent ${money(flow.spent, true)}.`
@@ -113,7 +117,7 @@ export function MoneyFlowCard({ month }: { month: Month }) {
   return (
     <Card
       title="Where your income went"
-      subtitle={`${monthLabel(month)}: income on the left, then categories, then types. Tap a block to see what's in it; in a category, tap a subcategory to see its payments.`}>
+      subtitle={`${monthLabel(month)}: income on the left, then categories (subscriptions as one block), then types. Tap a block to see what's in it; in a category, tap a subcategory to see its payments.`}>
       {flow.nodes.length === 0 ? (
         <ThemedText type="small" themeColor="textSecondary">
           No income or spending recorded for this month yet.

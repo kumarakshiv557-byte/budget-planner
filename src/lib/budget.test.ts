@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { addMonths, billsCalendar, billsFor, breakdown, matchRule, recategorizeIn, ruleFrom, sortIn, moneyFlow, categorize, typeFor, summarizeMonth, trend } from './budget.ts';
+import { addMonths, billsCalendar, billsFor, breakdown, matchRule, recategorizeIn, ruleFrom, sortIn, subscriptionsTotal, moneyFlow, categorize, typeFor, summarizeMonth, trend } from './budget.ts';
 import { initialState, migrate } from './defaults.ts';
 import { parseRevolutCsv } from './revolut-csv.ts';
 import type { BudgetState } from './types.ts';
@@ -324,6 +324,22 @@ test('bills calendar: one monthly event with a day-before alert per Pay-myself b
   assert.equal(ics.match(/BEGIN:VEVENT/g)!.length, 2);
   assert.match(ics, /DTSTART;VALUE=DATE:20261105\r\nRRULE:FREQ=MONTHLY;BYMONTHDAY=5\r\nSUMMARY:Pay Rent \(€900\\,00\)|SUMMARY:Pay Rent/);
   assert.match(ics, /DTSTART;VALUE=DATE:20261130\r\nRRULE:FREQ=MONTHLY;BYMONTHDAY=-1;UNTIL=20270228/);
-  assert.match(ics, /TRIGGER:-PT15H/);
+  assert.match(ics, /TRIGGER:PT9H/);
   assert.ok(!ics.includes('Spotify'));
+});
+
+test('subscriptions stay out of the pie charts and are one block in the Sankey', () => {
+  const s = initialState();
+  const tx = (id: string, amount: number, categoryId: string, payment?: 'auto' | 'manual') =>
+    ({ id, date: '2026-11-10', description: id, amount, categoryId, type: payment ? 'recurring-fixed' : 'variable-one-time', ...(payment ? { payment } : {}), source: 'revolut' }) as const;
+  s.transactions = [tx('spotify', 11, 'frivolous', 'auto'), tx('zara', 40, 'frivolous'), tx('rent', 800, 'essentials', 'manual')];
+  s.income = [{ id: 'i', date: '2026-11-01', description: 'Salary', amount: 1000, source: 'revolut' }];
+  assert.equal(subscriptionsTotal(s, '2026-11', 'actual'), 11);
+  const pie = breakdown(s, '2026-11', 'category', 'actual');
+  assert.deepEqual(pie.map((g) => [g.key, g.total]), [['essentials', 800], ['frivolous', 40]]);
+  const flow = moneyFlow(s, '2026-11');
+  assert.equal(flow.nodes.find((n) => n.id === 'subscriptions')!.value, 11);
+  assert.equal(flow.nodes.find((n) => n.id === 'cat:frivolous')!.value, 40);
+  assert.equal(flow.nodes.find((n) => n.id === 'leftover')!.value, 149);
+  assert.ok(!flow.links.some((l) => l.source === 'subscriptions'));
 });
