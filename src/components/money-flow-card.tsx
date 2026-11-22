@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import { View } from 'react-native';
+import { Pressable, View } from 'react-native';
 
 import { Sankey } from '@/components/sankey';
 import { ThemedText } from '@/components/themed-text';
-import { Card, useCategoryColor, useIsDark, useMoney } from '@/components/ui';
+import { Card, useCategoryColor, useCategoryLabel, useIsDark, useMoney } from '@/components/ui';
 import { Spacing, TypeColors } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { OTHER_INCOME, monthLabel, moneyFlow, transactionsIn, type FlowNode } from '@/lib/budget';
@@ -20,9 +20,17 @@ export function MoneyFlowCard({ month }: { month: Month }) {
   const money = useMoney();
   const colorFor = useCategoryColor();
   const [selected, setSelected] = useState<string | null>(null);
+  // Inside a tapped category: the subcategory being looked at ('' = no subcategory), or null for all.
+  const [subPick, setSubPick] = useState<string | null>(null);
+  const select = (id: string | null) => {
+    setSelected(id);
+    setSubPick(null);
+  };
 
   const flow = moneyFlow(state, month);
   const catName = (id: string) => state.categories.find((c) => c.id === id)?.name ?? 'Uncategorised';
+  const catLabel = useCategoryLabel();
+  const subName = (id?: string) => (id ? state.subcategories.find((x) => x.id === id)?.name : undefined);
   const label = (n: FlowNode) =>
     n.kind === 'income'
       ? n.key === OTHER_INCOME
@@ -59,18 +67,38 @@ export function MoneyFlowCard({ month }: { month: Month }) {
               ? !topSources.has(i.description.trim().toLowerCase())
               : i.description.trim().toLowerCase() === node.key.toLowerCase(),
           )
-          .map((i) => ({ id: i.id, label: i.description, sub: i.date, amount: i.amount }))
+          .map((i) => ({ id: i.id, note: undefined as string | undefined, label: i.description, sub: i.date, amount: i.amount }))
       : node.kind === 'category' || node.kind === 'type'
         ? transactionsIn(state.transactions, month)
             .filter((t) => (node.kind === 'category' ? (t.categoryId ?? 'none') === node.key : t.type === node.key))
+            .filter((t) => node.kind !== 'category' || subPick === null || (t.subcategoryId ?? '') === subPick)
             .map((t) => ({
               id: t.id,
+              note: t.note,
               label: t.description,
-              sub: `${t.date} · ${node.kind === 'category' ? TYPE_LABEL[t.type] : t.categoryId ? catName(t.categoryId) : 'Uncategorised'}`,
+              sub: `${t.date} · ${node.kind === 'category' ? `${subName(t.subcategoryId) ? `${subName(t.subcategoryId)} · ` : ''}${TYPE_LABEL[t.type]}` : catLabel(t.categoryId, t.subcategoryId)}`,
               amount: t.amount,
             }))
         : [];
   lines.sort((a, b) => b.amount - a.amount);
+
+  // Subcategory totals for a tapped category (only when it has any subcategorised spending).
+  const subs =
+    node?.kind === 'category'
+      ? (() => {
+          const m = new Map<string, { key: string; name: string; total: number; count: number }>();
+          for (const t of transactionsIn(state.transactions, month)) {
+            if ((t.categoryId ?? 'none') !== node.key) continue;
+            const key = t.subcategoryId ?? '';
+            const g = m.get(key) ?? { key, name: subName(t.subcategoryId) ?? 'No subcategory', total: 0, count: 0 };
+            g.total += t.amount;
+            g.count++;
+            m.set(key, g);
+          }
+          const list = [...m.values()].sort((a, b) => b.total - a.total);
+          return list.some((g) => g.key) ? list : [];
+        })()
+      : [];
 
   const note = !node
     ? null
@@ -85,7 +113,7 @@ export function MoneyFlowCard({ month }: { month: Month }) {
   return (
     <Card
       title="Where your income went"
-      subtitle={`${monthLabel(month)}: income on the left, then categories, then types. Tap a block to see what's in it.`}>
+      subtitle={`${monthLabel(month)}: income on the left, then categories, then types. Tap a block to see what's in it; in a category, tap a subcategory to see its payments.`}>
       {flow.nodes.length === 0 ? (
         <ThemedText type="small" themeColor="textSecondary">
           No income or spending recorded for this month yet.
@@ -101,7 +129,7 @@ export function MoneyFlowCard({ month }: { month: Month }) {
             nodes={flow.nodes.map((n) => ({ id: n.id, column: n.column, value: n.value, label: label(n), color: color(n) }))}
             links={flow.links}
             selected={selected}
-            onSelect={setSelected}
+            onSelect={select}
           />
         </>
       )}
@@ -115,12 +143,53 @@ export function MoneyFlowCard({ month }: { month: Month }) {
               {note}
             </ThemedText>
           ) : null}
+          {subs.length ? (
+            <View style={{ marginTop: Spacing.two }}>
+              <ThemedText type="small" themeColor="textSecondary">
+                Subcategories. Tap one to see just its payments.
+              </ThemedText>
+              {subs.map((g) => {
+                const on = subPick === g.key;
+                return (
+                  <Pressable
+                    key={g.key || 'none'}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: on }}
+                    onPress={() => setSubPick(on ? null : g.key)}
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: Spacing.two,
+                      paddingVertical: Spacing.two,
+                      paddingHorizontal: Spacing.two,
+                      marginTop: Spacing.one,
+                      borderRadius: 8,
+                      borderWidth: 1,
+                      borderColor: on ? theme.text : theme.border,
+                      backgroundColor: on ? theme.backgroundSelected : 'transparent',
+                    }}>
+                    <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: color(node!), opacity: g.key ? 1 : 0.45 }} />
+                    <ThemedText type="small" style={{ flex: 1 }}>
+                      {g.name} · {g.count}
+                    </ThemedText>
+                    <ThemedText type="smallBold">{money(g.total, true)}</ThemedText>
+                  </Pressable>
+                );
+              })}
+              {subPick !== null ? (
+                <ThemedText type="smallBold" style={{ marginTop: Spacing.two }}>
+                  {subs.find((g) => g.key === subPick)?.name} · {money(lines.reduce((a, l) => a + l.amount, 0), true)}
+                </ThemedText>
+              ) : null}
+            </View>
+          ) : null}
           {lines.map((l) => (
             <View
               key={l.id}
               style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.two, paddingVertical: Spacing.two, borderTopWidth: 1, borderColor: theme.border }}>
               <View style={{ flex: 1 }}>
-                <ThemedText type="small" numberOfLines={2}>
+                {l.note ? <ThemedText type="smallBold">{l.note}</ThemedText> : null}
+                <ThemedText type="small" numberOfLines={2} themeColor={l.note ? 'textSecondary' : undefined}>
                   {l.label}
                 </ThemedText>
                 <ThemedText type="small" themeColor="textSecondary">
