@@ -113,10 +113,14 @@ export default function SpendingScreen() {
 
   const edit = (t: Transaction) => setDraft({ ...t, amount: String(t.amount) });
   // For quick sorting: every category, each followed by its subcategories ("s:" ids).
-  const sortOptions = state.categories.flatMap((c) => [
-    { id: `c:${c.id}`, label: c.name },
-    ...state.subcategories.filter((x) => x.categoryId === c.id).map((x) => ({ id: `s:${x.id}`, label: `${c.name} › ${x.name}` })),
-  ]);
+  // Quick sorting shows categories only; a picked category's subcategories appear under it.
+  const sortOptions = state.categories.map((c) => ({ id: `c:${c.id}`, label: c.name }));
+  const catOfPick = (id?: string) =>
+    !id ? undefined : id.startsWith('s:') ? state.subcategories.find((x) => x.id === id.slice(2))?.categoryId : id.slice(2);
+  const subOptions = (catId?: string) => {
+    const subs = state.subcategories.filter((x) => x.categoryId === catId);
+    return subs.length ? [{ id: `c:${catId}`, label: 'No subcategory' }, ...subs.map((x) => ({ id: `s:${x.id}`, label: x.name }))] : [];
+  };
   const typeSwatch = (id: TypePick) => TypeColors[id][dark ? 1 : 0];
   const sortSwatch = (id: string) => {
     const catId = id.startsWith('s:') ? state.subcategories.find((x) => x.id === id.slice(2))?.categoryId : id.slice(2);
@@ -283,7 +287,17 @@ export default function SpendingScreen() {
               <ThemedText type="small" themeColor="textSecondary">
                 Category
               </ThemedText>
-              <Chips options={sortOptions} value={picks[t.id]?.cat ?? null} swatch={sortSwatch} onChange={(cat) => pickFor(t, { cat })} />
+              <Chips
+                options={sortOptions}
+                value={catOfPick(picks[t.id]?.cat) ? `c:${catOfPick(picks[t.id]?.cat)}` : null}
+                swatch={sortSwatch}
+                onChange={(cat) => pickFor(t, { cat })}
+              />
+              {subOptions(catOfPick(picks[t.id]?.cat)).length ? (
+                <View style={{ paddingLeft: Spacing.three }}>
+                  <Chips options={subOptions(catOfPick(picks[t.id]?.cat))} value={picks[t.id]?.cat ?? null} onChange={(cat) => pickFor(t, { cat })} />
+                </View>
+              ) : null}
               <ThemedText type="small" themeColor="textSecondary">
                 Type
               </ThemedText>
