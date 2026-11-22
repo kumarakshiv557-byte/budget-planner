@@ -56,6 +56,16 @@ export type Transaction = {
   externalId?: string;
 };
 
+/** Money that came in (salary, transfers from others). Amount is positive. */
+export type Income = {
+  id: string;
+  date: string; // YYYY-MM-DD
+  description: string;
+  amount: number;
+  source: TransactionSource;
+  externalId?: string;
+};
+
 /**
  * "Anything matching this text goes to this category" (and, if set, gets this type).
  * Learned when the user recategorises or retypes a transaction. Types belong to each line, not to a category.
@@ -69,6 +79,9 @@ export type BudgetState = {
   items: BudgetItem[];
   transactions: Transaction[];
   rules: CategoryRule[];
+  income: Income[];
+  /** True once Revolut income has been fetched for the full ~90-day window. */
+  incomeBackfilled?: boolean;
   /** When Revolut sync last succeeded (ISO time). */
   lastSyncedAt?: string;
 };

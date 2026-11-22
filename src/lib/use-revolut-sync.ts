@@ -5,7 +5,7 @@ import { Platform } from 'react-native';
 
 import { newId } from './budget.ts';
 import { useBudget } from './store.tsx';
-import { mergeSynced, nextDateFrom, syncApi, type SyncConfig } from './sync.ts';
+import { mergeSynced, mergeSyncedIncome, nextDateFrom, syncApi, type SyncConfig } from './sync.ts';
 
 const KEY = 'budget-planner/sync-config/v1';
 /** Default backend: this project's Supabase function. Can be changed in Settings. */
@@ -77,11 +77,16 @@ export function useRevolutSync() {
     () =>
       run('sync', async () => {
         const s = stateRef.current;
-        const res = await syncApi.sync(config, nextDateFrom(s.lastSyncedAt));
+        // The first sync after income support arrived re-reads the full window so past income shows up too.
+        const res = await syncApi.sync(config, s.incomeBackfilled ? nextDateFrom(s.lastSyncedAt) : undefined);
         const added = mergeSynced(s, res.transactions, newId);
-        applySync(added, new Date().toISOString());
+        const income = res.income ? mergeSyncedIncome(s, res.income, newId) : undefined;
+        applySync(added, new Date().toISOString(), income);
         setStatus((st) => ({ ...(st ?? { connected: true }), connected: true, validUntil: res.validUntil }));
-        setMessage({ text: added.length ? `Added ${added.length} new transactions from Revolut.` : 'Up to date. No new transactions.' });
+        const parts = [];
+        if (added.length) parts.push(`${added.length} new transactions`);
+        if (income?.length) parts.push(`${income.length} income payments`);
+        setMessage({ text: parts.length ? `Added ${parts.join(' and ')} from Revolut.` : 'Up to date. Nothing new.' });
       }),
     [run, config, applySync],
   );

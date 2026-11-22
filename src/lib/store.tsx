@@ -3,7 +3,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 
 import { newId } from './budget.ts';
 import { initialState } from './defaults.ts';
-import type { BudgetItem, BudgetState, Category, CategoryRule, Transaction } from './types.ts';
+import type { BudgetItem, BudgetState, Category, CategoryRule, Income, Transaction } from './types.ts';
 
 const KEY = 'budget-planner/state/v1';
 
@@ -14,8 +14,11 @@ type Actions = {
   saveTransaction: (t: Omit<Transaction, 'id'> & { id?: string }) => void;
   deleteTransaction: (id: string) => void;
   addTransactions: (ts: Transaction[]) => void;
-  /** Add synced transactions and record the sync time. */
-  applySync: (ts: Transaction[], at: string) => void;
+  /** Add synced transactions (and income, when the server sent it) and record the sync time. */
+  applySync: (ts: Transaction[], at: string, income?: Income[]) => void;
+  saveIncome: (i: Omit<Income, 'id'> & { id?: string }) => void;
+  deleteIncome: (id: string) => void;
+  addIncome: (list: Income[]) => void;
   /** Recategorise a transaction and remember the choice for future imports. */
   recategorize: (id: string, categoryId: string, learn: boolean) => void;
   updateCategory: (id: string, patch: Partial<Pick<Category, 'name'>>) => void;
@@ -92,7 +95,21 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
         }),
       deleteTransaction: (id) => update((s) => ({ ...s, transactions: s.transactions.filter((t) => t.id !== id) })),
       addTransactions: (ts) => update((s) => ({ ...s, transactions: [...s.transactions, ...ts] })),
-      applySync: (ts, at) => update((s) => ({ ...s, lastSyncedAt: at, transactions: [...s.transactions, ...ts] })),
+      applySync: (ts, at, income) =>
+        update((s) => ({
+          ...s,
+          lastSyncedAt: at,
+          transactions: [...s.transactions, ...ts],
+          ...(income ? { income: [...s.income, ...income], incomeBackfilled: true } : {}),
+        })),
+      saveIncome: (i) =>
+        update((s) => {
+          const full = { ...i, id: i.id ?? newId() } as Income;
+          const exists = s.income.some((x) => x.id === full.id);
+          return { ...s, income: exists ? s.income.map((x) => (x.id === full.id ? full : x)) : [...s.income, full] };
+        }),
+      deleteIncome: (id) => update((s) => ({ ...s, income: s.income.filter((x) => x.id !== id) })),
+      addIncome: (list) => update((s) => ({ ...s, income: [...s.income, ...list] })),
       recategorize: (id, categoryId, learn) =>
         update((s) => {
           const t = s.transactions.find((x) => x.id === id);

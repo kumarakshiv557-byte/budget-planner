@@ -6,7 +6,7 @@
 //                     needed because starting consent reveals nothing, and reading data still needs it)
 //   GET  /callback  → Enable Banking redirects here after consent; stores the session
 //   GET  /status    → { connected, validUntil, accounts }
-//   POST /sync      → { transactions } booked spending since body.dateFrom (default: 90 days ago)
+//   POST /sync      → { transactions, income } booked spending and money in since body.dateFrom (default: 90 days ago)
 //
 // Every route except /start and /callback requires the header `x-sync-secret: <SYNC_SECRET>`.
 // Secrets (set in Supabase → Edge Functions → Secrets):
@@ -18,7 +18,7 @@
 
 import { createClient } from 'npm:@supabase/supabase-js@2.49.4';
 
-import { base64url, normalizeTransactions, pemToPkcs8, type EbTransaction } from './eb-normalize.ts';
+import { base64url, normalizeRows, pemToPkcs8, type EbTransaction } from './eb-normalize.ts';
 
 const EB_API = 'https://api.enablebanking.com';
 const env = (k: string) => Deno.env.get(k) ?? '';
@@ -158,18 +158,21 @@ async function sync(req: Request) {
   const ownIbans = s.accounts.map((a) => a.iban ?? '').filter(Boolean);
 
   const all = [];
+  const income = [];
   for (const acc of s.accounts) {
     let key: string | undefined;
     for (let page = 0; page < 50; page++) {
       const q = new URLSearchParams({ date_from: dateFrom });
       if (key) q.set('continuation_key', key);
       const r = await eb<{ transactions: EbTransaction[]; continuation_key?: string | null }>(`/accounts/${acc.uid}/transactions?${q}`);
-      all.push(...normalizeTransactions(acc.uid, r.transactions ?? [], ownIbans));
+      const n = normalizeRows(acc.uid, r.transactions ?? [], ownIbans);
+      all.push(...n.spending);
+      income.push(...n.income);
       key = r.continuation_key ?? undefined;
       if (!key) break;
     }
   }
-  return json({ transactions: all, validUntil: s.valid_until, dateFrom });
+  return json({ transactions: all, income, validUntil: s.valid_until, dateFrom });
 }
 
 Deno.serve(async (req) => {

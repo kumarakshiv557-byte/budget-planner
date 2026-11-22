@@ -1,5 +1,5 @@
 import { categorize, typeFor } from './budget.ts';
-import type { BudgetState, Transaction } from './types.ts';
+import type { BudgetState, Income, Transaction } from './types.ts';
 import type { SyncedTransaction } from '../../supabase/functions/revolut-sync/eb-normalize.ts';
 
 export type { SyncedTransaction };
@@ -26,6 +26,18 @@ export function mergeSynced(state: BudgetState, rows: SyncedTransaction[], idFor
   return out;
 }
 
+/** Turn synced money-in rows into income, skipping ones already imported. */
+export function mergeSyncedIncome(state: BudgetState, rows: SyncedTransaction[], idFor: () => string): Income[] {
+  const seen = new Set((state.income ?? []).map((t) => t.externalId).filter(Boolean));
+  const out: Income[] = [];
+  for (const r of rows) {
+    if (seen.has(r.externalId)) continue;
+    seen.add(r.externalId);
+    out.push({ id: idFor(), date: r.date, description: r.description, amount: r.amount, source: 'revolut', externalId: r.externalId });
+  }
+  return out;
+}
+
 export type SyncConfig = { url: string; secret: string };
 
 async function call<T>(cfg: SyncConfig, route: string, init: RequestInit = {}): Promise<T> {
@@ -44,7 +56,7 @@ export const syncApi = {
     call<{ connected: boolean; validUntil?: string; accounts?: { name?: string; currency?: string }[] }>(cfg, 'status'),
   connect: (cfg: SyncConfig) => call<{ url: string; bank: string; validUntil: string }>(cfg, 'connect', { method: 'POST' }),
   sync: (cfg: SyncConfig, dateFrom?: string) =>
-    call<{ transactions: SyncedTransaction[]; validUntil: string; dateFrom: string }>(cfg, 'sync', {
+    call<{ transactions: SyncedTransaction[]; income?: SyncedTransaction[]; validUntil: string; dateFrom: string }>(cfg, 'sync', {
       method: 'POST',
       body: JSON.stringify(dateFrom ? { dateFrom } : {}),
     }),

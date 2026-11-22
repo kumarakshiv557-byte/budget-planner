@@ -13,11 +13,14 @@ import { ITEM_TYPES, type ItemType, type Transaction } from '@/lib/types';
 
 type Draft = { id?: string; date: string; description: string; amount: string; categoryId: string | null; type: ItemType };
 
+type IncomeDraft = { id?: string; date: string; description: string; amount: string };
+
 const TYPE_LABEL = Object.fromEntries(ITEM_TYPES.map((t) => [t.id, t.label]));
 const today = () => new Date().toISOString().slice(0, 10);
 
 export default function SpendingScreen() {
-  const { state, saveTransaction, deleteTransaction, addTransactions, recategorize } = useBudget();
+  const { state, saveTransaction, deleteTransaction, addTransactions, recategorize, addIncome, saveIncome, deleteIncome } = useBudget();
+  const [incomeDraft, setIncomeDraft] = useState<IncomeDraft | null>(null);
   const money = useMoney();
   const colorFor = useCategoryColor();
   const theme = useTheme();
@@ -26,6 +29,23 @@ export default function SpendingScreen() {
   const [notice, setNotice] = useState<{ text: string; error?: boolean } | null>(null);
   const [learn, setLearn] = useState(true);
 
+  const incomeList = transactionsIn(state.income, month).sort((a, b) => b.date.localeCompare(a.date));
+  const incomeAmount = Number((incomeDraft?.amount ?? '').replace(',', '.'));
+  const incomeValid =
+    !!incomeDraft && incomeDraft.description.trim() !== '' && Number.isFinite(incomeAmount) && incomeAmount > 0 && /^\d{4}-\d{2}-\d{2}$/.test(incomeDraft.date);
+  const saveIncomeDraft = () => {
+    if (!incomeDraft || !incomeValid) return;
+    const before = incomeDraft.id ? state.income.find((x) => x.id === incomeDraft.id) : undefined;
+    saveIncome({
+      id: incomeDraft.id,
+      date: incomeDraft.date,
+      description: incomeDraft.description.trim(),
+      amount: incomeAmount,
+      source: before?.source ?? 'manual',
+      externalId: before?.externalId,
+    });
+    setIncomeDraft(null);
+  };
   const list = transactionsIn(state.transactions, month).sort((a, b) => b.date.localeCompare(a.date));
   const uncategorised = list.filter((t) => !t.categoryId);
   const amount = Number((draft?.amount ?? '').replace(',', '.'));
@@ -38,10 +58,11 @@ export default function SpendingScreen() {
       if (text == null) return;
       const r = parseRevolutCsv(text, state, newId);
       addTransactions(r.transactions);
+      addIncome(r.income);
       const other = r.currencies.filter((c) => c !== state.currency);
-      const parts = [`Imported ${r.transactions.length} transactions.`];
+      const parts = [`Imported ${r.transactions.length} transactions${r.income.length ? ` and ${r.income.length} income payments` : ''}.`];
       if (r.skippedDuplicates) parts.push(`${r.skippedDuplicates} were already here.`);
-      if (r.skippedOther) parts.push(`${r.skippedOther} rows skipped (top-ups, income, exchanges, pending).`);
+      if (r.skippedOther) parts.push(`${r.skippedOther} rows skipped (top-ups, exchanges, pending).`);
       if (other.length) parts.push(`Note: the file has ${other.join(', ')} amounts, which are added as-is to your ${state.currency} totals.`);
       setNotice({ text: parts.join(' ') });
       const newest = r.transactions.map((t) => t.date).sort().pop();
@@ -151,6 +172,61 @@ export default function SpendingScreen() {
           ))}
         </Card>
       ) : null}
+
+      <Card title="Income" subtitle={`Money in during ${monthLabel(month)}: ${money(incomeList.reduce((s, t) => s + t.amount, 0))}. Synced from Revolut, imported, or added here.`}>
+        {incomeDraft ? (
+          <View style={{ gap: Spacing.two, paddingVertical: Spacing.two }}>
+            <View style={styles.row}>
+              <Field label="From" value={incomeDraft.description} onChangeText={(description) => setIncomeDraft({ ...incomeDraft, description })} placeholder="e.g. Salary" />
+              <Field
+                label={`Amount (${state.currency})`}
+                value={incomeDraft.amount}
+                onChangeText={(a) => setIncomeDraft({ ...incomeDraft, amount: a })}
+                keyboardType="decimal-pad"
+                placeholder="0"
+              />
+              <Field label="Date (YYYY-MM-DD)" value={incomeDraft.date} onChangeText={(date) => setIncomeDraft({ ...incomeDraft, date })} />
+            </View>
+            <View style={styles.row}>
+              <Button label="Save" onPress={saveIncomeDraft} disabled={!incomeValid} />
+              <Button label="Cancel" kind="secondary" onPress={() => setIncomeDraft(null)} />
+              {incomeDraft.id ? (
+                <Button
+                  label="Delete"
+                  kind="danger"
+                  onPress={() => {
+                    deleteIncome(incomeDraft.id!);
+                    setIncomeDraft(null);
+                  }}
+                />
+              ) : null}
+            </View>
+          </View>
+        ) : (
+          <Button
+            label="Add income"
+            kind="secondary"
+            onPress={() => setIncomeDraft({ date: month === currentMonth() ? today() : `${month}-01`, description: '', amount: '' })}
+          />
+        )}
+        {incomeList.map((t) => (
+          <Pressable
+            key={t.id}
+            onPress={() => setIncomeDraft({ id: t.id, date: t.date, description: t.description, amount: String(t.amount) })}
+            style={{ flexDirection: 'row', gap: Spacing.two, alignItems: 'center', paddingVertical: 6, borderTopWidth: 1, borderColor: theme.border }}>
+            <View style={{ flex: 1 }}>
+              <ThemedText type="small">{t.description}</ThemedText>
+              <ThemedText type="small" themeColor="textSecondary">
+                {t.date}
+                {t.source === 'csv' ? ' · imported' : t.source === 'revolut' ? ' · synced' : ''}
+              </ThemedText>
+            </View>
+            <ThemedText type="small" style={{ color: theme.good }}>
+              +{money(t.amount, true)}
+            </ThemedText>
+          </Pressable>
+        ))}
+      </Card>
 
       <Card title={`${list.length} transactions`} subtitle={`Total ${money(list.reduce((s, t) => s + t.amount, 0))}`}>
         {list.length === 0 ? (

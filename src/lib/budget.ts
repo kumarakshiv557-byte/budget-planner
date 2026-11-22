@@ -1,4 +1,4 @@
-import { isRecurring, type BudgetItem, type BudgetState, type ItemType, type Month, type Transaction } from './types.ts';
+import { isRecurring, type BudgetItem, type BudgetState, type ItemType, type Month } from './types.ts';
 
 export function monthOf(date: string): Month {
   return date.slice(0, 7);
@@ -42,7 +42,7 @@ export type MonthSummary = {
   byType: { type: ItemType; forecast: number; actual: number }[];
 };
 
-export function transactionsIn(transactions: Transaction[], month: Month) {
+export function transactionsIn<T extends { date: string }>(transactions: T[], month: Month): T[] {
   return transactions.filter((t) => monthOf(t.date) === month);
 }
 
@@ -168,4 +168,83 @@ export function breakdown(state: BudgetState, month: Month, dim: BreakdownDim, s
       lines: g.lines.sort((a, b) => b.amount - a.amount || (b.date ?? '').localeCompare(a.date ?? '')),
     }))
     .sort((a, b) => b.total - a.total);
+}
+
+/** Key of the income node that groups the smaller sources. */
+export const OTHER_INCOME = '__other';
+
+export type FlowNodeKind = 'income' | 'gap' | 'total' | 'category' | 'leftover' | 'type';
+export type FlowNode = { id: string; kind: FlowNodeKind; key: string; column: 0 | 1 | 2 | 3; value: number };
+export type FlowLink = { source: string; target: string; value: number };
+
+/**
+ * Money flow for one month, for the Sankey chart:
+ * income sources → the month → categories (+ left over) → types.
+ * If spending is more than income, a "gap" source covers the difference (savings or untracked money).
+ * Refunds can make a category negative; those are left out of the flow.
+ */
+export function moneyFlow(state: BudgetState, month: Month, maxSources = 5) {
+  const nodes: FlowNode[] = [];
+  const links: FlowLink[] = [];
+
+  const bySource = new Map<string, { label: string; value: number }>();
+  for (const i of transactionsIn(state.income ?? [], month)) {
+    const k = i.description.trim().toLowerCase();
+    const g = bySource.get(k) ?? { label: i.description.trim(), value: 0 };
+    g.value += i.amount;
+    bySource.set(k, g);
+  }
+  let sources = [...bySource.values()].filter((s) => s.value > 0).sort((a, b) => b.value - a.value);
+  if (sources.length > maxSources) {
+    const rest = sources.slice(maxSources - 1).reduce((s, x) => s + x.value, 0);
+    sources = [...sources.slice(0, maxSources - 1), { label: OTHER_INCOME, value: rest }];
+  }
+
+  const cat = new Map<string, number>();
+  const catType = new Map<string, Map<ItemType, number>>();
+  for (const t of transactionsIn(state.transactions, month)) {
+    const c = t.categoryId ?? 'none';
+    cat.set(c, (cat.get(c) ?? 0) + t.amount);
+    const m = catType.get(c) ?? new Map<ItemType, number>();
+    m.set(t.type, (m.get(t.type) ?? 0) + t.amount);
+    catType.set(c, m);
+  }
+  const cats = [...cat.entries()].filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
+
+  const income = round2(sources.reduce((s, x) => s + x.value, 0));
+  const spent = round2(cats.reduce((s, [, v]) => s + v, 0));
+  const total = Math.max(income, spent);
+  if (total <= 0) return { nodes, links, income, spent };
+
+  for (const s of sources) {
+    nodes.push({ id: `in:${s.label}`, kind: 'income', key: s.label, column: 0, value: round2(s.value) });
+    links.push({ source: `in:${s.label}`, target: 'total', value: round2(s.value) });
+  }
+  if (spent > income) {
+    nodes.push({ id: 'gap', kind: 'gap', key: 'gap', column: 0, value: round2(spent - income) });
+    links.push({ source: 'gap', target: 'total', value: round2(spent - income) });
+  }
+  nodes.push({ id: 'total', kind: 'total', key: month, column: 1, value: round2(total) });
+
+  const typeTotals = new Map<ItemType, number>();
+  for (const [c, v] of cats) {
+    nodes.push({ id: `cat:${c}`, kind: 'category', key: c, column: 2, value: round2(v) });
+    links.push({ source: 'total', target: `cat:${c}`, value: round2(v) });
+    // Within a category, refunds of one type are netted against the others so the split still adds up.
+    const parts = [...(catType.get(c) ?? new Map()).entries()].filter(([, x]) => x > 0);
+    const sum = parts.reduce((s, [, x]) => s + x, 0);
+    for (const [type, x] of parts) {
+      const share = round2((x / sum) * v);
+      links.push({ source: `cat:${c}`, target: `type:${type}`, value: share });
+      typeTotals.set(type, (typeTotals.get(type) ?? 0) + share);
+    }
+  }
+  if (income > spent) {
+    nodes.push({ id: 'leftover', kind: 'leftover', key: 'leftover', column: 2, value: round2(income - spent) });
+    links.push({ source: 'total', target: 'leftover', value: round2(income - spent) });
+  }
+  for (const [type, v] of [...typeTotals.entries()].sort((a, b) => b[1] - a[1])) {
+    nodes.push({ id: `type:${type}`, kind: 'type', key: type, column: 3, value: round2(v) });
+  }
+  return { nodes, links, income, spent };
 }
