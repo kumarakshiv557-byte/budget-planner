@@ -1,6 +1,6 @@
 import { categorize } from './budget.ts';
 import type { BudgetState, Transaction } from './types.ts';
-import type { SyncedTransaction } from '../../supabase/functions/_shared/eb-normalize.ts';
+import type { SyncedTransaction } from '../../supabase/functions/revolut-sync/eb-normalize.ts';
 
 export type { SyncedTransaction };
 

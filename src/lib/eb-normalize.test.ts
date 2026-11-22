@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createVerify, generateKeyPairSync } from 'node:crypto';
 import { test } from 'node:test';
 
-import { base64url, normalizeTransactions, pemToPkcs8 } from '../../supabase/functions/_shared/eb-normalize.ts';
+import { base64url, normalizeTransactions, pemToPkcs8 } from '../../supabase/functions/revolut-sync/eb-normalize.ts';
 
 test('Enable Banking rows: keeps booked debits, skips credits, pending and own transfers', () => {
   const rows = [

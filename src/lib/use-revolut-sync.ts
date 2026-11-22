@@ -8,7 +8,8 @@ import { mergeSynced, nextDateFrom, syncApi, type SyncConfig } from './sync.ts';
 
 const KEY = 'budget-planner/sync-config/v1';
 /** Default backend: this project's Supabase function. Can be changed in Settings. */
-export const DEFAULT_SYNC_URL = process.env.EXPO_PUBLIC_SYNC_URL ?? '';
+export const DEFAULT_SYNC_URL =
+  process.env.EXPO_PUBLIC_SYNC_URL ?? 'https://lyfztzgubetxreowrylh.supabase.co/functions/v1/revolut-sync';
 
 type Status = { connected: boolean; validUntil?: string; accounts?: { name?: string; currency?: string }[] };
 

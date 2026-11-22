@@ -16,7 +16,7 @@
 
 import { createClient } from 'npm:@supabase/supabase-js@2.49.4';
 
-import { base64url, normalizeTransactions, pemToPkcs8, type EbTransaction } from '../_shared/eb-normalize.ts';
+import { base64url, normalizeTransactions, pemToPkcs8, type EbTransaction } from './eb-normalize.ts';
 
 const EB_API = 'https://api.enablebanking.com';
 const env = (k: string) => Deno.env.get(k) ?? '';

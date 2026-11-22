@@ -40,8 +40,10 @@ npm run typecheck
 - `src/lib/` – plain TypeScript: types, default categories, forecast/actual maths, Revolut CSV parser, and the app state store.
 - `src/components/charts.tsx` – the charts (react-native-svg, works on web and mobile).
 - `src/app/` – the four screens: Overview, Budget, Spending, Settings.
+- `supabase/` – the Revolut sync Edge Function and its database migration.
+
+- **Automatic Revolut sync** through Enable Banking, via a Supabase Edge Function. Setup: [docs/revolut-sync.md](docs/revolut-sync.md).
 
 ## Next
 
-- Automatic Revolut sync through Enable Banking (EU open banking, works with Revolut's Portuguese/EU accounts). It needs a small backend to keep the API keys off the device.
-- Sync across devices (Supabase).
+- Sync budget data across devices (Supabase).
