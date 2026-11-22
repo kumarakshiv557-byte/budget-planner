@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { addMonths, breakdown, recategorizeIn, ruleFrom, moneyFlow, categorize, typeFor, summarizeMonth, trend } from './budget.ts';
+import { addMonths, breakdown, matchRule, recategorizeIn, ruleFrom, moneyFlow, categorize, typeFor, summarizeMonth, trend } from './budget.ts';
 import { initialState, migrate } from './defaults.ts';
 import { parseRevolutCsv } from './revolut-csv.ts';
 import type { BudgetState } from './types.ts';
@@ -212,15 +212,41 @@ test('recategorize with remember sorts the other unsorted rows from the same mer
 test('migrate adds the eating-out subcategory to old data and sorts what its rules recognise', () => {
   const old = initialState() as Partial<ReturnType<typeof initialState>>;
   delete old.subcategories;
+  delete old.dataVersion;
   old.rules = [{ match: 'netflix', categoryId: 'subscriptions' }, { match: 'cafe', categoryId: 'frivolous' }];
   old.transactions = [
     { id: 'z', date: '2026-11-17', description: 'Raz*zomato Online Order', amount: 7, categoryId: null, type: 'variable-one-time', source: 'revolut' },
     { id: 'n', date: '2026-11-17', description: 'Something else', amount: 7, categoryId: null, type: 'variable-one-time', source: 'revolut' },
   ];
   const s = migrate(old);
-  assert.deepEqual(s.subcategories.map((c) => c.name), ['Eating out / food delivery']);
+  assert.deepEqual(s.subcategories.map((c) => c.name), ['Eating out / food delivery', 'Subscriptions']);
   assert.equal(s.rules.find((r) => r.match === 'cafe')!.subcategoryId, 'eating-out');
   assert.deepEqual(s.transactions.map((t) => [t.categoryId, t.subcategoryId]), [['frivolous', 'eating-out'], [null, undefined]]);
   // already-migrated data is left alone
   assert.equal(migrate(s).rules.length, s.rules.length);
+});
+
+test('migrate puts every iTunes, Spotify and YouTube payment in Frivolous › Subscriptions, recurring fixed', () => {
+  const s = migrate(initialState());
+  const old = { ...s, dataVersion: 1, rules: [...s.rules, { match: 'itunesappst', categoryId: 'frivolous' }] };
+  old.transactions = [
+    { id: 'a', date: '2026-11-16', description: 'Paypal *itunesappst Apple', amount: 10, categoryId: 'frivolous', subcategoryId: 'eating-out', type: 'variable-one-time', source: 'revolut' },
+    { id: 'b', date: '2026-11-16', description: 'Spotify P2C1', amount: 11, categoryId: null, type: 'variable-one-time', source: 'revolut' },
+    { id: 'c', date: '2026-11-16', description: 'Google *YouTube Premium', amount: 12, categoryId: 'essentials', type: 'variable-one-time', source: 'revolut' },
+    { id: 'd', date: '2026-11-16', description: 'Lidl', amount: 13, categoryId: 'essentials', type: 'variable-one-time', source: 'revolut' },
+  ];
+  const m = migrate(old);
+  assert.deepEqual(m.transactions.map((t) => [t.id, t.categoryId, t.subcategoryId, t.type]), [
+    ['a', 'frivolous', 'frivolous-subscriptions', 'recurring-fixed'],
+    ['b', 'frivolous', 'frivolous-subscriptions', 'recurring-fixed'],
+    ['c', 'frivolous', 'frivolous-subscriptions', 'recurring-fixed'],
+    ['d', 'essentials', undefined, 'variable-one-time'],
+  ]);
+  assert.equal(m.rules.find((r) => r.match === 'itunesappst')!.subcategoryId, 'frivolous-subscriptions');
+  assert.equal(matchRule('Paypal *itunesappst Apple', m.rules)!.subcategoryId, 'frivolous-subscriptions');
+  assert.equal(m.subcategories.filter((x) => x.id === 'frivolous-subscriptions').length, 1);
+  assert.equal(m.dataVersion, 2);
+  // runs once: a later manual change sticks
+  const edited = { ...m, transactions: m.transactions.map((t) => (t.id === 'c' ? { ...t, categoryId: 'frivolous' } : t)) };
+  assert.equal(migrate(edited).transactions.find((t) => t.id === 'c')!.categoryId, 'frivolous');
 });
