@@ -47,30 +47,24 @@ function money(amount: number, currency: string) {
 }
 
 /**
- * Reminders to send on `today` (local date): a bill due tomorrow, due today, or due yesterday and
- * still unpaid. Paid months and months outside the bill's start/end are skipped. Each reminder has a
- * `key` so the same one is never sent twice.
+ * Reminders to send on `today` (local date): one per bill that is due tomorrow and not yet marked paid,
+ * so there is a day to arrange the money. (The calendar file covers the due day itself.)
+ * Months outside the bill's start/end are skipped. Each reminder has a `key` so it is never sent twice.
  */
 export function remindersFor(bills: PushBill[], today: string): Reminder[] {
   const out: Reminder[] = [];
+  const day = addDays(today, 1);
+  const month = day.slice(0, 7);
   for (const bill of bills) {
-    for (const [offset, when] of [
-      [1, 'tomorrow'],
-      [0, 'today'],
-      [-1, 'yesterday'],
-    ] as const) {
-      const day = addDays(today, offset);
-      const month = day.slice(0, 7);
-      if (month < bill.startMonth || (bill.endMonth && month > bill.endMonth)) continue;
-      if (dueDateIn(bill, month) !== day || bill.paidMonths?.includes(month)) continue;
-      const amount = `${bill.variable ? 'about ' : ''}${money(bill.amount, bill.currency)}`;
-      out.push({
-        billId: bill.id,
-        key: `${bill.id}:${day}:${when}`,
-        title: when === 'yesterday' ? `${bill.name} is overdue` : `${bill.name} is due ${when}`,
-        body: when === 'yesterday' ? `It was due yesterday (${amount}). Mark it paid in Budget once it's done.` : `Pay ${amount}.`,
-      });
-    }
+    if (month < bill.startMonth || (bill.endMonth && month > bill.endMonth)) continue;
+    if (dueDateIn(bill, month) !== day || bill.paidMonths?.includes(month)) continue;
+    const amount = `${bill.variable ? 'about ' : ''}${money(bill.amount, bill.currency)}`;
+    out.push({
+      billId: bill.id,
+      key: `${bill.id}:${day}:tomorrow`,
+      title: `${bill.name} is due tomorrow`,
+      body: `${amount}. Make sure the money is there.`,
+    });
   }
   return out;
 }

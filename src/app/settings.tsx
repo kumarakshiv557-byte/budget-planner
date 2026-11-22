@@ -6,6 +6,7 @@ import { Button, Card, Chips, Field, Screen, styles, useCategoryColor } from '@/
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { useBudget } from '@/lib/store';
+import { useBillPush } from '@/lib/use-bill-push';
 import { useRevolutSync } from '@/lib/use-revolut-sync';
 
 const CURRENCIES = ['EUR', 'INR', 'GBP', 'USD'].map((c) => ({ id: c, label: c }));
@@ -78,6 +79,8 @@ export default function SettingsScreen() {
 
       <RevolutSyncCard />
 
+      <BillRemindersCard />
+
       <Card title="Data" subtitle="Everything is stored on this device only.">
         <View style={styles.row}>
           {confirmReset ? (
@@ -149,6 +152,40 @@ function RevolutSyncCard() {
       {message ? (
         <ThemedText type="small" style={{ color: message.error ? theme.critical : theme.textSecondary }}>
           {message.error ? '⚠ ' : '✓ '}
+          {message.text}
+        </ThemedText>
+      ) : null}
+    </Card>
+  );
+}
+
+function BillRemindersCard() {
+  const theme = useTheme();
+  const { status, busy, message, turnOn, sendTest, turnOff } = useBillPush();
+  const text = {
+    unsupported: "This browser can't show notifications. Open the app in Chrome, Edge, Firefox or Safari.",
+    'needs-install': 'On iPhone, first add the app to your home screen (Share → Add to Home Screen), open it from there, then turn reminders on.',
+    blocked: 'Notifications are blocked for this site. Allow them in your browser or phone settings, then come back.',
+    off: 'Off on this device.',
+    on: '✓ On for this device.',
+  }[status];
+  return (
+    <Card title="Bill reminders" subtitle="A notification at 9:00 the day before each Pay myself bill is due, so you can have the money ready. Bills you've marked paid are skipped.">
+      <ThemedText type="small" themeColor="textSecondary">
+        {text}
+      </ThemedText>
+      <View style={[styles.row, { marginTop: Spacing.two }]}>
+        {status === 'off' ? <Button label={busy ? 'Turning on…' : 'Turn on reminders'} onPress={turnOn} disabled={busy} /> : null}
+        {status === 'on' ? (
+          <>
+            <Button label={busy ? 'Sending…' : 'Send a test'} kind="secondary" onPress={sendTest} disabled={busy} />
+            <Button label="Turn off" kind="secondary" onPress={turnOff} disabled={busy} />
+          </>
+        ) : null}
+      </View>
+      {message ? (
+        <ThemedText type="small" style={{ color: message.error ? theme.critical : theme.textSecondary }}>
+          {message.error ? '⚠ ' : ''}
           {message.text}
         </ThemedText>
       ) : null}

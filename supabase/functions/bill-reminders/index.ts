@@ -97,7 +97,7 @@ Deno.serve(async (req) => {
     if (route === 'test' && req.method === 'POST') {
       const { data } = await db.from('push_subscriptions').select('endpoint, subscription').eq('endpoint', String(body.endpoint ?? '')).maybeSingle();
       if (!data) return json({ error: 'This device is not registered for notifications yet.' }, 404);
-      const ok = await send(data as Row, { title: 'Bill reminders are on ✓', body: `You'll be reminded at ${SEND_HOUR}:00 the day before, the day of, and the day after a bill is due.` });
+      const ok = await send(data as Row, { title: 'Bill reminders are on ✓', body: `You'll get a reminder at ${SEND_HOUR}:00 the day before each bill is due.` });
       return ok ? json({ ok: true }) : json({ error: 'The browser refused the notification.' }, 502);
     }
     return json({ error: 'Not found' }, 404);

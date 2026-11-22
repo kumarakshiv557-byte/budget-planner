@@ -5,6 +5,7 @@ import { useColorScheme } from 'react-native';
 
 import AppTabs from '@/components/app-tabs';
 import { BudgetProvider, useBudget } from '@/lib/store';
+import { useBillPush } from '@/lib/use-bill-push';
 import { useRevolutSync } from '@/lib/use-revolut-sync';
 
 SplashScreen.preventAutoHideAsync();
@@ -17,9 +18,10 @@ function HideSplashWhenReady() {
   return null;
 }
 
-/** Runs the quiet background sync when the app opens. */
+/** Runs the quiet background sync when the app opens, and keeps bill reminders up to date. */
 function AutoSync() {
   useRevolutSync();
+  useBillPush();
   return null;
 }
 
