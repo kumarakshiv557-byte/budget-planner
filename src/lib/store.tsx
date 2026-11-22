@@ -10,6 +10,8 @@ const KEY = 'budget-planner/state/v1';
 type Actions = {
   saveItem: (item: Omit<BudgetItem, 'id'> & { id?: string }) => void;
   deleteItem: (id: string) => void;
+  /** Mark a "Pay myself" bill as paid (or not) for a month. */
+  setBillPaid: (id: string, month: string, paid: boolean) => void;
   /** Save a transaction. If an edit changes its type, remember that type for the same merchant. */
   saveTransaction: (t: Omit<Transaction, 'id'> & { id?: string }) => void;
   deleteTransaction: (id: string) => void;
@@ -64,6 +66,15 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
           const exists = s.items.some((i) => i.id === full.id);
           return { ...s, items: exists ? s.items.map((i) => (i.id === full.id ? full : i)) : [...s.items, full] };
         }),
+      setBillPaid: (id, month, paid) =>
+        update((s) => ({
+          ...s,
+          items: s.items.map((i) => {
+            if (i.id !== id) return i;
+            const rest = (i.paidMonths ?? []).filter((m) => m !== month);
+            return { ...i, paidMonths: paid ? [...rest, month] : rest };
+          }),
+        })),
       deleteItem: (id) => update((s) => ({ ...s, items: s.items.filter((i) => i.id !== id) })),
       saveTransaction: (t) =>
         update((s) => {
@@ -72,11 +83,13 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
           const exists = !!before;
           let rules = s.rules;
           const match = ruleFrom(full.description);
-          if (before && before.type !== full.type && full.source !== 'manual' && match && full.categoryId) {
+          const changed = before && (before.type !== full.type || before.payment !== full.payment);
+          if (changed && full.source !== 'manual' && match && full.categoryId) {
+            const learned = { type: full.type, payment: full.payment };
             const i = rules.findIndex((r) => r.match === match);
             rules = i >= 0
-              ? rules.map((r, j) => (j === i ? { ...r, type: full.type } : r))
-              : [...rules, { match, categoryId: full.categoryId, type: full.type }];
+              ? rules.map((r, j) => (j === i ? { ...r, ...learned } : r))
+              : [...rules, { match, categoryId: full.categoryId, ...learned }];
           }
           return {
             ...s,

@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { addMonths, breakdown, matchRule, recategorizeIn, ruleFrom, moneyFlow, categorize, typeFor, summarizeMonth, trend } from './budget.ts';
+import { addMonths, billsCalendar, billsFor, breakdown, matchRule, recategorizeIn, ruleFrom, moneyFlow, categorize, typeFor, summarizeMonth, trend } from './budget.ts';
 import { initialState, migrate } from './defaults.ts';
 import { parseRevolutCsv } from './revolut-csv.ts';
 import type { BudgetState } from './types.ts';
@@ -77,7 +77,7 @@ test('Revolut CSV: keeps spending, refunds and income, skips top-ups and pending
   assert.deepEqual(
     r.transactions.map((t) => [t.date, t.description, t.amount, t.categoryId, t.type]),
     [
-      ['2026-11-02', 'Netflix.com', 12.99, 'subscriptions', 'recurring-fixed'],
+      ['2026-11-02', 'Netflix.com', 12.99, 'frivolous', 'recurring-fixed'],
       ['2026-11-03', 'Pingo Doce, Lisboa', 45.1, 'essentials', 'variable-one-time'],
       ['2026-11-07', 'Cash at ATM', 102, null, 'variable-one-time'],
       ['2026-11-08', 'Pingo Doce', -5.1, 'essentials', 'variable-one-time'],
@@ -111,9 +111,9 @@ test('synced rows: categorised, typed and de-duplicated', async () => {
     { externalId: 'eb:a:1', date: '2026-11-02', description: 'Netflix.com', amount: 12.99, currency: 'EUR' },
   ];
   const first = mergeSynced(s, rows, id);
-  assert.deepEqual(first.map((t) => [t.externalId, t.categoryId, t.type, t.source]), [
-    ['eb:a:1', 'subscriptions', 'recurring-fixed', 'revolut'],
-    ['eb:a:2', null, 'variable-one-time', 'revolut'],
+  assert.deepEqual(first.map((t) => [t.externalId, t.categoryId, t.type, t.payment, t.source]), [
+    ['eb:a:1', 'frivolous', 'recurring-fixed', 'auto', 'revolut'],
+    ['eb:a:2', null, 'variable-one-time', undefined, 'revolut'],
   ]);
   s.transactions = first;
   assert.equal(mergeSynced(s, rows, id).length, 0);
@@ -219,34 +219,69 @@ test('migrate adds the eating-out subcategory to old data and sorts what its rul
     { id: 'n', date: '2026-11-17', description: 'Something else', amount: 7, categoryId: null, type: 'variable-one-time', source: 'revolut' },
   ];
   const s = migrate(old);
-  assert.deepEqual(s.subcategories.map((c) => c.name), ['Eating out / food delivery', 'Subscriptions']);
+  assert.deepEqual(s.subcategories.map((c) => c.name), ['Eating out / food delivery']);
+  assert.ok(!s.categories.some((c) => c.id === 'subscriptions'));
   assert.equal(s.rules.find((r) => r.match === 'cafe')!.subcategoryId, 'eating-out');
   assert.deepEqual(s.transactions.map((t) => [t.categoryId, t.subcategoryId]), [['frivolous', 'eating-out'], [null, undefined]]);
   // already-migrated data is left alone
   assert.equal(migrate(s).rules.length, s.rules.length);
 });
 
-test('migrate puts every iTunes, Spotify and YouTube payment in Frivolous › Subscriptions, recurring fixed', () => {
-  const s = migrate(initialState());
-  const old = { ...s, dataVersion: 1, rules: [...s.rules, { match: 'itunesappst', categoryId: 'frivolous' }] };
+test('migrate retires the Subscriptions category: its payments become Frivolous, auto-paid', () => {
+  const old = { ...initialState(), dataVersion: 1 } as ReturnType<typeof initialState>;
+  old.categories = [...old.categories, { id: 'subscriptions', name: 'Subscriptions', color: '#1baf7a', colorDark: '#199e70' }];
+  old.rules = [...old.rules, { match: 'itunesappst', categoryId: 'essentials' }, { match: 'patreon', categoryId: 'subscriptions' }];
+  old.items = [{ id: 'i', name: 'Gym', categoryId: 'subscriptions', type: 'recurring-fixed', amount: 30, startMonth: '2026-01' }];
   old.transactions = [
     { id: 'a', date: '2026-11-16', description: 'Paypal *itunesappst Apple', amount: 10, categoryId: 'frivolous', subcategoryId: 'eating-out', type: 'variable-one-time', source: 'revolut' },
     { id: 'b', date: '2026-11-16', description: 'Spotify P2C1', amount: 11, categoryId: null, type: 'variable-one-time', source: 'revolut' },
-    { id: 'c', date: '2026-11-16', description: 'Google *YouTube Premium', amount: 12, categoryId: 'essentials', type: 'variable-one-time', source: 'revolut' },
+    { id: 'c', date: '2026-11-16', description: 'Patreon', amount: 5, categoryId: 'subscriptions', type: 'recurring-fixed', source: 'revolut' },
     { id: 'd', date: '2026-11-16', description: 'Lidl', amount: 13, categoryId: 'essentials', type: 'variable-one-time', source: 'revolut' },
   ];
   const m = migrate(old);
-  assert.deepEqual(m.transactions.map((t) => [t.id, t.categoryId, t.subcategoryId, t.type]), [
-    ['a', 'frivolous', 'frivolous-subscriptions', 'recurring-fixed'],
-    ['b', 'frivolous', 'frivolous-subscriptions', 'recurring-fixed'],
-    ['c', 'frivolous', 'frivolous-subscriptions', 'recurring-fixed'],
-    ['d', 'essentials', undefined, 'variable-one-time'],
+  assert.ok(!m.categories.some((c) => c.id === 'subscriptions'));
+  assert.deepEqual(m.transactions.map((t) => [t.id, t.categoryId, t.subcategoryId, t.type, t.payment]), [
+    ['a', 'frivolous', undefined, 'recurring-fixed', 'auto'],
+    ['b', 'frivolous', undefined, 'recurring-fixed', 'auto'],
+    ['c', 'frivolous', undefined, 'recurring-fixed', 'auto'],
+    ['d', 'essentials', undefined, 'variable-one-time', undefined],
   ]);
-  assert.equal(m.rules.find((r) => r.match === 'itunesappst')!.subcategoryId, 'frivolous-subscriptions');
-  assert.equal(matchRule('Paypal *itunesappst Apple', m.rules)!.subcategoryId, 'frivolous-subscriptions');
-  assert.equal(m.subcategories.filter((x) => x.id === 'frivolous-subscriptions').length, 1);
+  assert.deepEqual([m.items[0].categoryId, m.items[0].payment], ['frivolous', 'auto']);
+  assert.equal(matchRule('Paypal *itunesappst Apple', m.rules)!.payment, 'auto');
+  assert.equal(m.rules.find((r) => r.match === 'patreon')!.categoryId, 'frivolous');
   assert.equal(m.dataVersion, 2);
   // runs once: a later manual change sticks
-  const edited = { ...m, transactions: m.transactions.map((t) => (t.id === 'c' ? { ...t, categoryId: 'frivolous' } : t)) };
-  assert.equal(migrate(edited).transactions.find((t) => t.id === 'c')!.categoryId, 'frivolous');
+  const edited = { ...m, transactions: m.transactions.map((t) => (t.id === 'c' ? { ...t, categoryId: 'essentials' } : t)) };
+  assert.equal(migrate(edited).transactions.find((t) => t.id === 'c')!.categoryId, 'essentials');
+});
+
+test('bills: Pay-myself items for a month, with due dates and paid state', () => {
+  const s = initialState();
+  s.items = [
+    { id: 'rent', name: 'Rent', categoryId: 'essentials', type: 'recurring-fixed', amount: 900, startMonth: '2026-01', payment: 'manual', dueDay: 1, paidMonths: ['2026-11'] },
+    { id: 'phone', name: 'Phone', categoryId: 'utilities', type: 'recurring-fixed', amount: 20, startMonth: '2026-01', payment: 'manual', dueDay: 31 },
+    { id: 'spot', name: 'Spotify', categoryId: 'frivolous', type: 'recurring-fixed', amount: 11, startMonth: '2026-01', payment: 'auto' },
+  ];
+  const b = billsFor(s, '2026-11', new Date(2026, 10, 22));
+  assert.deepEqual(b.map((x) => [x.item.id, x.due, x.daysLeft, x.paid]), [
+    ['phone', '2026-11-30', 8, false],
+    ['rent', '2026-11-01', -21, true],
+  ]);
+});
+
+test('bills calendar: one monthly event with a day-before alert per Pay-myself bill', () => {
+  const ics = billsCalendar(
+    [
+      { id: 'rent', name: 'Rent', categoryId: 'essentials', type: 'recurring-fixed', amount: 900, startMonth: '2026-01', payment: 'manual', dueDay: 5 },
+      { id: 'card', name: 'Card bill', categoryId: 'essentials', type: 'recurring-fixed', amount: 50, startMonth: '2026-01', endMonth: '2027-02', payment: 'manual', dueDay: 31 },
+      { id: 'spot', name: 'Spotify', categoryId: 'frivolous', type: 'recurring-fixed', amount: 11, startMonth: '2026-01', payment: 'auto' },
+    ],
+    'EUR',
+    new Date(2026, 10, 22),
+  );
+  assert.equal(ics.match(/BEGIN:VEVENT/g)!.length, 2);
+  assert.match(ics, /DTSTART;VALUE=DATE:20261105\r\nRRULE:FREQ=MONTHLY;BYMONTHDAY=5\r\nSUMMARY:Pay Rent \(€900\\,00\)|SUMMARY:Pay Rent/);
+  assert.match(ics, /DTSTART;VALUE=DATE:20261130\r\nRRULE:FREQ=MONTHLY;BYMONTHDAY=-1;UNTIL=20270228/);
+  assert.match(ics, /TRIGGER:-PT15H/);
+  assert.ok(!ics.includes('Spotify'));
 });

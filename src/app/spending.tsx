@@ -5,13 +5,13 @@ import { ThemedText } from '@/components/themed-text';
 import { Button, CategoryPicker, Card, Chips, Field, Label, MonthSwitcher, Screen, styles, useCategoryColor, useCategoryLabel, useMoney } from '@/components/ui';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { currentMonth, monthLabel, newId, transactionsIn } from '@/lib/budget';
+import { currentMonth, monthLabel, newId, paymentNote, transactionsIn } from '@/lib/budget';
 import { parseRevolutCsv } from '@/lib/revolut-csv';
 import { pickCsvText } from '@/lib/pick-file';
 import { useBudget } from '@/lib/store';
-import { ITEM_TYPES, type ItemType, type Transaction } from '@/lib/types';
+import { ITEM_TYPES, PAYMENTS, isRecurring, type ItemType, type Payment, type Transaction } from '@/lib/types';
 
-type Draft = { id?: string; date: string; description: string; amount: string; categoryId: string | null; subcategoryId?: string; type: ItemType };
+type Draft = { id?: string; date: string; description: string; amount: string; categoryId: string | null; subcategoryId?: string; type: ItemType; payment?: Payment };
 
 type IncomeDraft = { id?: string; date: string; description: string; amount: string };
 
@@ -83,6 +83,7 @@ export default function SpendingScreen() {
       categoryId: draft.categoryId,
       subcategoryId: draft.categoryId ? draft.subcategoryId : undefined,
       type: draft.type,
+      payment: isRecurring(draft.type) ? draft.payment : undefined,
       source: draft.id ? (state.transactions.find((t) => t.id === draft.id)?.source ?? 'manual') : 'manual',
       externalId: draft.id ? state.transactions.find((t) => t.id === draft.id)?.externalId : undefined,
     });
@@ -149,6 +150,12 @@ export default function SpendingScreen() {
           />
           <Label>Type</Label>
           <Chips options={ITEM_TYPES} value={draft.type} onChange={(type) => setDraft({ ...draft, type })} />
+          {isRecurring(draft.type) ? (
+            <>
+              <Label>How is it paid?</Label>
+              <Chips options={PAYMENTS} value={draft.payment ?? null} onChange={(payment) => setDraft({ ...draft, payment })} />
+            </>
+          ) : null}
           <View style={[styles.row, { marginTop: Spacing.three }]}>
             <Button label="Save" onPress={save} disabled={!valid} />
             <Button label="Cancel" kind="secondary" onPress={() => setDraft(null)} />
@@ -260,6 +267,7 @@ export default function SpendingScreen() {
                   <ThemedText type="small">{t.description}</ThemedText>
                   <ThemedText type="small" themeColor="textSecondary">
                     {t.date} · {catLabel(t.categoryId, t.subcategoryId)} · {TYPE_LABEL[t.type]}
+                    {t.payment ? ` · ${paymentNote(t)}` : ''}
                     {t.source === 'csv' ? ' · imported' : t.source === 'revolut' ? ' · synced' : ''}
                   </ThemedText>
                 </View>

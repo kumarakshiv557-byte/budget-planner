@@ -112,6 +112,7 @@ export function parseRevolutCsv(text: string, state: BudgetState, idFor: () => s
       categoryId,
       ...(rule?.subcategoryId ? { subcategoryId: rule.subcategoryId } : {}),
       type: typeFor(description, state.rules),
+      ...(rule?.payment ? { payment: rule.payment } : {}),
       source: 'csv',
       externalId,
     });

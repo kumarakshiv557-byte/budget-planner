@@ -7,9 +7,9 @@ import { ThemedText } from '@/components/themed-text';
 import { Card, Chips, styles as ui, useCategoryColor, useCategoryLabel, useIsDark, useMoney } from '@/components/ui';
 import { MaxContentWidth, Spacing, TypeColors } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { breakdown, monthLabel, type BreakdownDim, type BreakdownLine, type BreakdownSide } from '@/lib/budget';
+import { breakdown, monthLabel, paymentNote, type BreakdownDim, type BreakdownLine, type BreakdownSide } from '@/lib/budget';
 import { useBudget } from '@/lib/store';
-import { ITEM_TYPES, type ItemType, type Month } from '@/lib/types';
+import { ITEM_TYPES, PAYMENTS, isRecurring, type ItemType, type Month } from '@/lib/types';
 
 const TYPE_LABEL = Object.fromEntries(ITEM_TYPES.map((t) => [t.id, t.label])) as Record<ItemType, string>;
 const SIDES = [
@@ -63,6 +63,18 @@ export function BreakdownSheet({
     }
     return [...m.values()].sort((a, b) => b.total - a.total);
   };
+  /** Recurring, fixed split into Subscription / Pay myself / not tagged. */
+  const payTotals = (lines: BreakdownLine[]) => {
+    const m = new Map<string, { key: string; label: string; total: number; count: number }>();
+    for (const l of lines) {
+      const key = l.payment ?? '';
+      const g = m.get(key) ?? { key, label: PAYMENTS.find((p) => p.id === l.payment)?.label ?? 'Not tagged', total: 0, count: 0 };
+      g.total += l.amount;
+      g.count++;
+      m.set(key, g);
+    }
+    return [...m.values()].sort((a, b) => b.total - a.total);
+  };
 
   return (
     <Modal visible={dim !== null} animationType="slide" onRequestClose={onClose} presentationStyle="fullScreen">
@@ -108,8 +120,8 @@ export function BreakdownSheet({
                 <Card
                   title={`${labelOf(group.key)} · ${group.lines.length} ${side === 'actual' ? (group.lines.length === 1 ? 'expense' : 'expenses') : group.lines.length === 1 ? 'budget line' : 'budget lines'}`}
                   subtitle={`Total ${money(group.total, true)}`}>
-                  {dim === 'category' && subTotals(group.lines).length > 1
-                    ? subTotals(group.lines).map((x) => (
+                  {(dim === 'category' ? subTotals(group.lines) : isRecurring(group.key as ItemType) ? payTotals(group.lines) : []).length > 1
+                    ? (dim === 'category' ? subTotals(group.lines) : payTotals(group.lines)).map((x) => (
                         <View key={x.key} style={[s.line, { borderColor: theme.border }]}>
                           <ThemedText type="smallBold" style={{ flex: 1 }}>
                             {x.label} · {x.count}
@@ -125,7 +137,7 @@ export function BreakdownSheet({
                           {l.label}
                         </ThemedText>
                         <ThemedText type="small" themeColor="textSecondary">
-                          {[l.date, dim === 'type' ? catLabel(l.categoryId, l.subcategoryId) : subName(l.subcategoryId), TYPE_LABEL[l.type]]
+                          {[l.date, dim === 'type' ? catLabel(l.categoryId, l.subcategoryId) : subName(l.subcategoryId), TYPE_LABEL[l.type], paymentNote(l)]
                             .filter(Boolean)
                             .join(' · ')}
                         </ThemedText>

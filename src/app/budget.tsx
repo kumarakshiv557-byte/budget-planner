@@ -5,11 +5,26 @@ import { ThemedText } from '@/components/themed-text';
 import { Button, CategoryPicker, Card, Chips, Field, Label, MonthSwitcher, Screen, styles, useCategoryColor, useMoney } from '@/components/ui';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { currentMonth, itemAppliesTo, monthLabel } from '@/lib/budget';
+import { currentMonth, itemAppliesTo, monthLabel, paymentNote } from '@/lib/budget';
 import { useBudget } from '@/lib/store';
-import { ITEM_TYPES, isRecurring, type BudgetItem, type ItemType } from '@/lib/types';
+import { ITEM_TYPES, PAYMENTS, isRecurring, type BudgetItem, type ItemType, type Payment } from '@/lib/types';
 
-type Draft = { id?: string; name: string; categoryId: string; subcategoryId?: string; type: ItemType | null; amount: string; startMonth: string; endMonth: string };
+type Draft = {
+  id?: string;
+  name: string;
+  categoryId: string;
+  subcategoryId?: string;
+  type: ItemType | null;
+  payment?: Payment;
+  dueDay: string;
+  amount: string;
+  startMonth: string;
+  endMonth: string;
+  paidMonths?: string[];
+};
+type Filter = 'all' | Payment;
+const FILTERS: { id: Filter; label: string }[] = [{ id: 'all', label: 'All' }, ...PAYMENTS.map((p) => ({ id: p.id as Filter, label: p.label }))];
+
 
 const TYPE_LABEL = Object.fromEntries(ITEM_TYPES.map((t) => [t.id, t.label]));
 
@@ -25,13 +40,17 @@ export default function BudgetScreen() {
     name: '',
     categoryId,
     type: null,
+    dueDay: '',
     amount: '',
     startMonth: month,
     endMonth: '',
   });
 
   const edit = (i: BudgetItem) =>
-    setDraft({ ...i, amount: String(i.amount), endMonth: i.endMonth ?? '' });
+    setDraft({ ...i, amount: String(i.amount), endMonth: i.endMonth ?? '', dueDay: i.dueDay ? String(i.dueDay) : '' });
+  const [filter, setFilter] = useState<Filter>('all');
+  const dueDay = Number(draft?.dueDay);
+  const dueValid = !draft?.dueDay || (Number.isInteger(dueDay) && dueDay >= 1 && dueDay <= 31);
 
   const amount = Number((draft?.amount ?? '').replace(',', '.'));
   const valid =
@@ -41,7 +60,8 @@ export default function BudgetScreen() {
     Number.isFinite(amount) &&
     amount > 0 &&
     /^\d{4}-\d{2}$/.test(draft.startMonth) &&
-    (draft.endMonth === '' || /^\d{4}-\d{2}$/.test(draft.endMonth));
+    (draft.endMonth === '' || /^\d{4}-\d{2}$/.test(draft.endMonth)) &&
+    dueValid;
 
   const save = () => {
     if (!draft || !valid || !draft.type) return;
@@ -54,12 +74,17 @@ export default function BudgetScreen() {
       amount,
       startMonth: draft.startMonth,
       endMonth: isRecurring(draft.type) && draft.endMonth ? draft.endMonth : undefined,
+      ...(isRecurring(draft.type) && draft.payment
+        ? { payment: draft.payment, ...(draft.payment === 'manual' && draft.dueDay ? { dueDay } : {}) }
+        : {}),
+      paidMonths: draft.paidMonths,
     });
     setDraft(null);
   };
 
-  const inMonth = state.items.filter((i) => itemAppliesTo(i, month));
-  const later = state.items.filter((i) => !itemAppliesTo(i, month));
+  const shown = state.items.filter((i) => filter === 'all' || i.payment === filter);
+  const inMonth = shown.filter((i) => itemAppliesTo(i, month));
+  const later = shown.filter((i) => !itemAppliesTo(i, month));
 
   return (
     <Screen title="Budget" right={<MonthSwitcher month={month} onChange={setMonth} />}>
@@ -91,6 +116,26 @@ export default function BudgetScreen() {
           <ThemedText type="small" themeColor="textSecondary">
             {draft.type ? ITEM_TYPES.find((t) => t.id === draft.type)?.hint : 'Pick how this line behaves over time.'}
           </ThemedText>
+          {isRecurring(draft.type) ? (
+            <>
+              <Label>How is it paid?</Label>
+              <Chips options={PAYMENTS} value={draft.payment ?? null} onChange={(payment) => setDraft({ ...draft, payment })} />
+              <ThemedText type="small" themeColor="textSecondary">
+                {draft.payment ? PAYMENTS.find((p) => p.id === draft.payment)?.hint : 'Optional. Tag subscriptions and bills you pay yourself.'}
+              </ThemedText>
+              {draft.payment === 'manual' ? (
+                <View style={styles.row}>
+                  <Field
+                    label="Due day of the month (1-31)"
+                    value={draft.dueDay}
+                    onChangeText={(v) => setDraft({ ...draft, dueDay: v.replace(/[^0-9]/g, '') })}
+                    keyboardType="number-pad"
+                    placeholder="e.g. 5"
+                  />
+                </View>
+              ) : null}
+            </>
+          ) : null}
           <View style={[styles.row, { marginTop: Spacing.two }]}>
             <Field
               label={isRecurring(draft.type) ? 'Starts (YYYY-MM)' : 'Month (YYYY-MM)'}
@@ -126,8 +171,11 @@ export default function BudgetScreen() {
         <Button label="Add budget item" onPress={() => setDraft(blank())} />
       )}
 
+      <Chips options={FILTERS} value={filter} onChange={setFilter} />
+
       {state.categories.map((c) => {
         const items = inMonth.filter((i) => i.categoryId === c.id);
+        if (filter !== 'all' && !items.length) return null;
         const total = items.reduce((s, i) => s + i.amount, 0);
         return (
           <Card key={c.id}>
@@ -153,6 +201,7 @@ export default function BudgetScreen() {
                     <ThemedText type="small" themeColor="textSecondary">
                       {i.subcategoryId ? `${state.subcategories.find((x) => x.id === i.subcategoryId)?.name ?? ''} · ` : ''}
                       {TYPE_LABEL[i.type]}
+                      {i.payment ? ` · ${paymentNote(i)}` : ''}
                       {i.endMonth ? ` · until ${monthLabel(i.endMonth, 'short')}` : ''}
                     </ThemedText>
                   </View>
