@@ -1,98 +1,89 @@
-import * as Device from 'expo-device';
-import { Platform, StyleSheet } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useState } from 'react';
+import { View } from 'react-native';
 
-import { AnimatedIcon } from '@/components/animated-icon';
-import { HintRow } from '@/components/hint-row';
+import { PairedBars, ShareBar, StatTile, TrendChart } from '@/components/charts';
 import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { WebBadge } from '@/components/web-badge';
-import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
+import { Card, MonthSwitcher, Screen, styles, useCategoryColor, useMoney } from '@/components/ui';
+import { currentMonth, monthLabel, summarizeMonth, trend } from '@/lib/budget';
+import { useBudget } from '@/lib/store';
+import { ITEM_TYPES } from '@/lib/types';
 
-function getDevMenuHint() {
-  if (Platform.OS === 'web') {
-    return <ThemedText type="small">use browser devtools</ThemedText>;
-  }
-  if (Device.isDevice) {
-    return (
-      <ThemedText type="small">
-        shake device or press <ThemedText type="code">m</ThemedText> in terminal
-      </ThemedText>
-    );
-  }
-  const shortcut = Platform.OS === 'android' ? 'cmd+m (or ctrl+m)' : 'cmd+d';
-  return (
-    <ThemedText type="small">
-      press <ThemedText type="code">{shortcut}</ThemedText>
-    </ThemedText>
-  );
-}
+const TYPE_LABEL = Object.fromEntries(ITEM_TYPES.map((t) => [t.id, t.label]));
 
-export default function HomeScreen() {
+export default function OverviewScreen() {
+  const { state } = useBudget();
+  const money = useMoney();
+  const colorFor = useCategoryColor();
+  const [month, setMonth] = useState(currentMonth());
+
+  const summary = summarizeMonth(state, month);
+  const months = trend(state, month, 6);
+  const catName = (id: string | null) => state.categories.find((c) => c.id === id)?.name ?? 'Uncategorised';
+  const remaining = summary.forecast - summary.actual;
+  const empty = !state.items.length && !state.transactions.length;
+
   return (
-    <ThemedView style={styles.container}>
-      <SafeAreaView style={styles.safeArea}>
-        <ThemedView style={styles.heroSection}>
-          <AnimatedIcon />
-          <ThemedText type="title" style={styles.title}>
-            Welcome to&nbsp;Expo
+    <Screen title="Overview" right={<MonthSwitcher month={month} onChange={setMonth} />}>
+      {empty ? (
+        <Card title="Start here">
+          <ThemedText type="small" themeColor="textSecondary">
+            Add what you expect to spend on the Budget tab, then add or import what you actually spent on the Spending tab. The
+            charts here compare the two.
           </ThemedText>
-        </ThemedView>
+        </Card>
+      ) : null}
 
-        <ThemedText type="code" style={styles.code}>
-          get started
-        </ThemedText>
+      <View style={styles.row}>
+        <StatTile label="Forecast" value={money(summary.forecast)} note={monthLabel(month)} />
+        <StatTile label="Actual" value={money(summary.actual)} />
+        <StatTile
+          label={remaining >= 0 ? 'Left to spend' : 'Over forecast'}
+          value={money(Math.abs(remaining))}
+          tone={remaining >= 0 ? 'good' : 'critical'}
+          note={summary.forecast ? `${Math.round((summary.actual / summary.forecast) * 100)}% of forecast used` : undefined}
+        />
+      </View>
 
-        <ThemedView type="backgroundElement" style={styles.stepContainer}>
-          <HintRow
-            title="Try editing"
-            hint={<ThemedText type="code">src/app/index.tsx</ThemedText>}
-          />
-          <HintRow title="Dev tools" hint={getDevMenuHint()} />
-          <HintRow
-            title="Fresh start"
-            hint={<ThemedText type="code">npm run reset-project</ThemedText>}
-          />
-        </ThemedView>
+      <Card title="Forecast vs actual by category" subtitle="Tap a category for what's left.">
+        <PairedBars
+          rows={summary.byCategory.map((r) => ({
+            key: r.categoryId ?? 'none',
+            label: catName(r.categoryId),
+            forecast: r.forecast,
+            actual: r.actual,
+            swatch: colorFor(state.categories.find((c) => c.id === r.categoryId)),
+          }))}
+        />
+      </Card>
 
-        {Platform.OS === 'web' && <WebBadge />}
-      </SafeAreaView>
-    </ThemedView>
+      <Card title="Where the money went" subtitle={`Actual spending in ${monthLabel(month)}, by category.`}>
+        <ShareBar
+          emptyText="No spending recorded for this month yet."
+          slices={summary.byCategory.map((r) => ({
+            key: r.categoryId ?? 'none',
+            label: catName(r.categoryId),
+            value: r.actual,
+            color: colorFor(state.categories.find((c) => c.id === r.categoryId)),
+          }))}
+        />
+      </Card>
+
+      <Card title="Last 6 months" subtitle="Total forecast vs actual. Tap a month to see its numbers.">
+        <TrendChart
+          points={months.map((m) => ({
+            key: m.month,
+            label: monthLabel(m.month, 'short'),
+            forecast: m.forecast,
+            actual: m.actual,
+          }))}
+        />
+      </Card>
+
+      <Card title="Forecast vs actual by type" subtitle="Fixed costs are predictable; variable and one-time costs are where budgets slip.">
+        <PairedBars
+          rows={summary.byType.map((r) => ({ key: r.type, label: TYPE_LABEL[r.type], forecast: r.forecast, actual: r.actual }))}
+        />
+      </Card>
+    </Screen>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: 'center',
-    flexDirection: 'row',
-  },
-  safeArea: {
-    flex: 1,
-    paddingHorizontal: Spacing.four,
-    alignItems: 'center',
-    gap: Spacing.three,
-    paddingBottom: BottomTabInset + Spacing.three,
-    maxWidth: MaxContentWidth,
-  },
-  heroSection: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    flex: 1,
-    paddingHorizontal: Spacing.four,
-    gap: Spacing.four,
-  },
-  title: {
-    textAlign: 'center',
-  },
-  code: {
-    textTransform: 'uppercase',
-  },
-  stepContainer: {
-    gap: Spacing.three,
-    alignSelf: 'stretch',
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.four,
-    borderRadius: Spacing.four,
-  },
-});

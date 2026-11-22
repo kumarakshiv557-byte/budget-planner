@@ -1,56 +1,47 @@
-# Welcome to your Expo app 👋
+# Budget planner
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+A personal budget planner for web, iPhone and Android, built with Expo (one codebase for all three).
 
-## Get started
+## What it does
 
-1. Install dependencies
+- **Forecast vs actual.** Plan what you expect to spend each month (Budget tab), record what you actually spent (Spending tab), and compare them on the Overview tab.
+- **Categories:** Essentials, Frivolous, Subscriptions, Utility bills, Taxes. Rename them or change their default type in Settings.
+- **Every item has a type:**
 
-   ```bash
-   npm install
-   ```
+  | Type | Meaning | Default for |
+  |---|---|---|
+  | Recurring, fixed | Same amount every month | Subscriptions, rent |
+  | Recurring, variable | Every month, amount changes | Essentials, utility bills |
+  | One-time, variable | Unplanned, any amount | Frivolous spending |
+  | One-time, fixed | Known lump sum in one month | Taxes (e.g. an IRS settlement) |
 
-2. Start the app
+- **Charts:** forecast vs actual by category and by type, share of spending by category, and a 6-month forecast vs actual trend.
+- **Revolut import:** in the Revolut app, go to your account → Statement → Excel/CSV, then use *Import Revolut CSV* on the Spending tab. Top-ups, income, currency exchanges and pending payments are skipped, refunds reduce spending, and importing the same file twice adds nothing. Common merchants are sorted into categories automatically; sort the rest once and the app remembers.
 
-   ```bash
-   npx expo start
-   ```
+Data is stored on the device only (browser storage on web).
 
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **src/app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
+## Run it
 
 ```bash
-npm run reset-project
+npm install
+npm run web        # in the browser
+npx expo start     # then scan the QR code with Expo Go on your phone
 ```
 
-This command will move the starter code to the **example** directory and create a blank **src/app** directory where you can start developing.
+## Checks
 
-### Other setup steps
+```bash
+npm test           # logic tests (forecasting, CSV import, categorisation)
+npm run typecheck
+```
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+## Code layout
 
-## Learn more
+- `src/lib/` – plain TypeScript: types, default categories, forecast/actual maths, Revolut CSV parser, and the app state store.
+- `src/components/charts.tsx` – the charts (react-native-svg, works on web and mobile).
+- `src/app/` – the four screens: Overview, Budget, Spending, Settings.
 
-To learn more about developing your project with Expo, look at the following resources:
+## Next
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
-
-## Join the community
-
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+- Automatic Revolut sync through Enable Banking (EU open banking, works with Revolut's Portuguese/EU accounts). It needs a small backend to keep the API keys off the device.
+- Sync across devices (Supabase).
