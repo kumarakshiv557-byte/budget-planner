@@ -90,4 +90,6 @@ export type BudgetState = {
   incomeBackfilled?: boolean;
   /** When Revolut sync last succeeded (ISO time). */
   lastSyncedAt?: string;
+  /** Which one-off data upgrades (see `migrate`) have run. */
+  dataVersion?: number;
 };
