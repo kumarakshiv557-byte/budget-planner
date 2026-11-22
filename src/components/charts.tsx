@@ -257,15 +257,15 @@ export function Donut({
   const r = 104;
   const inner = 62;
   const gap = positive.length > 1 ? 0.012 : 0;
-  let a = 0;
+  const ends = positive.reduce<number[]>((acc, s) => [...acc, (acc.at(-1) ?? 0) + (s.value / total) * Math.PI * 2], []);
   const sel = positive.find((s) => s.key === selected);
   return (
     <View style={{ gap: Spacing.three }}>
       <View style={{ alignItems: 'center' }}>
         <Svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-          {positive.map((s) => {
-            const a0 = a;
-            const a1 = (a += (s.value / total) * Math.PI * 2);
+          {positive.map((s, i) => {
+            const a0 = i ? ends[i - 1] : 0;
+            const a1 = ends[i];
             const on = s.key === selected;
             const mid = (a0 + a1) / 2;
             const push = on && positive.length > 1 ? 6 : 0;

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -38,12 +38,8 @@ export function BreakdownSheet({
   const money = useMoney();
   const colorFor = useCategoryColor();
   const [side, setSide] = useState<BreakdownSide>('actual');
-  const [selected, setSelected] = useState<string | null>(null);
-
-  useEffect(() => {
-    setSelected(initialKey ?? null);
-    setSide('actual');
-  }, [dim, initialKey]);
+  // The parent remounts this sheet (via `key`) for each new open, so these start fresh each time.
+  const [selected, setSelected] = useState<string | null>(initialKey ?? null);
 
   const groups = dim ? breakdown(state, month, dim, side) : [];
   const catName = (id: string | null) => state.categories.find((c) => c.id === id)?.name ?? 'Uncategorised';

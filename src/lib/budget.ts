@@ -1,4 +1,4 @@
-import { isRecurring, type BudgetItem, type BudgetState, type ItemType, type Month, type Transaction } from './types.ts';
+import { isRecurring, type BudgetItem, type BudgetState, type ItemType, type Month } from './types.ts';
 
 export function monthOf(date: string): Month {
   return date.slice(0, 7);

@@ -93,7 +93,7 @@ export default function OverviewScreen() {
           rows={summary.byType.map((r) => ({ key: r.type, label: TYPE_LABEL[r.type], forecast: r.forecast, actual: r.actual }))}
         />
       </Card>
-      <BreakdownSheet dim={pie?.dim ?? null} initialKey={pie?.key} month={month} onClose={() => setPie(null)} />
+      <BreakdownSheet key={`${pie?.dim}:${pie?.key}`} dim={pie?.dim ?? null} initialKey={pie?.key} month={month} onClose={() => setPie(null)} />
     </Screen>
   );
 }
