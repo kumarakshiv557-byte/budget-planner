@@ -2,8 +2,8 @@ import { useState } from 'react';
 import { Pressable, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
-import { Button, CategoryPicker, Card, Chips, Field, Label, MonthSwitcher, Screen, styles, useCategoryColor, useCategoryLabel, useMoney } from '@/components/ui';
-import { Spacing } from '@/constants/theme';
+import { Button, CategoryPicker, Card, Chips, Field, Label, MonthSwitcher, Screen, styles, useCategoryColor, useCategoryLabel, useIsDark, useMoney } from '@/components/ui';
+import { Spacing, TypeColors } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { currentMonth, monthLabel, newId, paymentNote, transactionsIn } from '@/lib/budget';
 import { parseRevolutCsv } from '@/lib/revolut-csv';
@@ -11,24 +11,30 @@ import { pickCsvText } from '@/lib/pick-file';
 import { useBudget } from '@/lib/store';
 import { ITEM_TYPES, PAYMENTS, isRecurring, type ItemType, type Payment, type Transaction } from '@/lib/types';
 
-type Draft = { id?: string; date: string; description: string; amount: string; categoryId: string | null; subcategoryId?: string; type: ItemType; payment?: Payment };
+type Draft = { id?: string; date: string; description: string; amount: string; categoryId: string | null; subcategoryId?: string; type: ItemType; payment?: Payment; note?: string };
 
 type IncomeDraft = { id?: string; date: string; description: string; amount: string };
 
 const TYPE_LABEL = Object.fromEntries(ITEM_TYPES.map((t) => [t.id, t.label]));
+/** Type choices when sorting, with a one-tap "Subscription" (recurring, fixed, debited automatically) first. */
+type TypePick = ItemType | 'subscription';
+const TYPE_PICKS: { id: TypePick; label: string }[] = [{ id: 'subscription', label: '⚡ Subscription' }, ...ITEM_TYPES];
 const today = () => new Date().toISOString().slice(0, 10);
 
 export default function SpendingScreen() {
-  const { state, saveTransaction, deleteTransaction, addTransactions, recategorize, addIncome, saveIncome, deleteIncome } = useBudget();
+  const { state, saveTransaction, deleteTransaction, addTransactions, sortTransaction, addIncome, saveIncome, deleteIncome } = useBudget();
   const [incomeDraft, setIncomeDraft] = useState<IncomeDraft | null>(null);
   const money = useMoney();
   const colorFor = useCategoryColor();
   const catLabel = useCategoryLabel();
   const theme = useTheme();
+  const dark = useIsDark();
   const [month, setMonth] = useState(currentMonth());
   const [draft, setDraft] = useState<Draft | null>(null);
   const [notice, setNotice] = useState<{ text: string; error?: boolean } | null>(null);
   const [learn, setLearn] = useState(true);
+  // Half-finished picks in "to sort": a row is sorted once it has both a category and a type.
+  const [picks, setPicks] = useState<Record<string, { cat?: string; type?: TypePick; note?: string }>>({});
 
   const incomeList = transactionsIn(state.income, month).sort((a, b) => b.date.localeCompare(a.date));
   const incomeAmount = Number((incomeDraft?.amount ?? '').replace(',', '.'));
@@ -84,6 +90,7 @@ export default function SpendingScreen() {
       subcategoryId: draft.categoryId ? draft.subcategoryId : undefined,
       type: draft.type,
       payment: isRecurring(draft.type) ? draft.payment : undefined,
+      note: draft.note?.trim() || undefined,
       source: draft.id ? (state.transactions.find((t) => t.id === draft.id)?.source ?? 'manual') : 'manual',
       externalId: draft.id ? state.transactions.find((t) => t.id === draft.id)?.externalId : undefined,
     });
@@ -96,15 +103,23 @@ export default function SpendingScreen() {
     { id: `c:${c.id}`, label: c.name },
     ...state.subcategories.filter((x) => x.categoryId === c.id).map((x) => ({ id: `s:${x.id}`, label: `${c.name} › ${x.name}` })),
   ]);
+  const typeSwatch = (id: TypePick) => TypeColors[id === 'subscription' ? 'recurring-fixed' : id][dark ? 1 : 0];
   const sortSwatch = (id: string) => {
     const catId = id.startsWith('s:') ? state.subcategories.find((x) => x.id === id.slice(2))?.categoryId : id.slice(2);
     return colorFor(state.categories.find((c) => c.id === catId));
   };
-  const sortInto = (tId: string, id: string) => {
-    if (id.startsWith('s:')) {
-      const sc = state.subcategories.find((x) => x.id === id.slice(2));
-      if (sc) recategorize(tId, sc.categoryId, learn, sc.id);
-    } else recategorize(tId, id.slice(2), learn);
+  const pickFor = (tId: string, change: { cat?: string; type?: TypePick }) => {
+    const next = { ...picks[tId], ...change };
+    if (!next.cat || !next.type) {
+      setPicks({ ...picks, [tId]: next });
+      return;
+    }
+    const { [tId]: _done, ...rest } = picks;
+    setPicks(rest);
+    const sc = next.cat.startsWith('s:') ? state.subcategories.find((x) => x.id === next.cat!.slice(2)) : undefined;
+    const categoryId = sc ? sc.categoryId : next.cat.slice(2);
+    const typeAndTag = next.type === 'subscription' ? { type: 'recurring-fixed' as const, payment: 'auto' as const } : { type: next.type };
+    sortTransaction(tId, { categoryId, subcategoryId: sc?.id, ...typeAndTag, note: next.note }, learn);
   };
 
   return (
@@ -142,6 +157,14 @@ export default function SpendingScreen() {
             />
             <Field label="Date (YYYY-MM-DD)" value={draft.date} onChangeText={(date) => setDraft({ ...draft, date })} />
           </View>
+          <View style={styles.row}>
+            <Field
+              label="What's it for? (optional, remembered for this place)"
+              value={draft.note ?? ''}
+              onChangeText={(note) => setDraft({ ...draft, note })}
+              placeholder="e.g. Office lunch with the team"
+            />
+          </View>
           <Label>Category</Label>
           <CategoryPicker
             categoryId={draft.categoryId}
@@ -176,7 +199,7 @@ export default function SpendingScreen() {
       {uncategorised.length ? (
         <Card
           title={`${uncategorised.length} to sort`}
-          subtitle="Pick a category for each. With 'remember' on, the other payments from the same place are sorted too, and so are future ones.">
+          subtitle="Pick a category and a type for each. ⚡ Subscription means recurring, fixed and debited automatically. With 'remember' on, other payments from the same place are sorted too, now and in future.">
           <Pressable onPress={() => setLearn(!learn)} accessibilityRole="checkbox" accessibilityState={{ checked: learn }}>
             <ThemedText type="small">{learn ? '☑' : '☐'} Remember my choices</ThemedText>
           </Pressable>
@@ -188,7 +211,20 @@ export default function SpendingScreen() {
                 </ThemedText>
                 <ThemedText type="smallBold">{money(t.amount)}</ThemedText>
               </View>
-              <Chips options={sortOptions} value={null} swatch={sortSwatch} onChange={(id) => sortInto(t.id, id)} />
+              <Field
+                label="What's it for? (optional)"
+                value={picks[t.id]?.note ?? ''}
+                onChangeText={(note) => setPicks({ ...picks, [t.id]: { ...picks[t.id], note } })}
+                placeholder="e.g. Netflix for the family"
+              />
+              <ThemedText type="small" themeColor="textSecondary">
+                Category
+              </ThemedText>
+              <Chips options={sortOptions} value={picks[t.id]?.cat ?? null} swatch={sortSwatch} onChange={(cat) => pickFor(t.id, { cat })} />
+              <ThemedText type="small" themeColor="textSecondary">
+                Type
+              </ThemedText>
+              <Chips options={TYPE_PICKS} value={picks[t.id]?.type ?? null} swatch={typeSwatch} onChange={(type) => pickFor(t.id, { type })} />
             </View>
           ))}
         </Card>
@@ -264,7 +300,10 @@ export default function SpendingScreen() {
                 style={{ flexDirection: 'row', gap: Spacing.two, alignItems: 'center', paddingVertical: 6, borderTopWidth: 1, borderColor: theme.border }}>
                 <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: colorFor(c) }} />
                 <View style={{ flex: 1 }}>
-                  <ThemedText type="small">{t.description}</ThemedText>
+                  {t.note ? <ThemedText type="smallBold">{t.note}</ThemedText> : null}
+                  <ThemedText type="small" themeColor={t.note ? 'textSecondary' : undefined}>
+                    {t.description}
+                  </ThemedText>
                   <ThemedText type="small" themeColor="textSecondary">
                     {t.date} · {catLabel(t.categoryId, t.subcategoryId)} · {TYPE_LABEL[t.type]}
                     {t.payment ? ` · ${paymentNote(t)}` : ''}

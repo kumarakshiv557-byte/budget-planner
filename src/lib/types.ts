@@ -74,6 +74,8 @@ export type Transaction = {
   subcategoryId?: string;
   type: ItemType;
   payment?: Payment;
+  /** Your own note on what it was for, e.g. "Mum's birthday gift". Remembered per merchant. */
+  note?: string;
   source: TransactionSource;
   /** Bank/CSV reference used to skip duplicates on re-import. */
   externalId?: string;
@@ -93,7 +95,7 @@ export type Income = {
  * "Anything matching this text goes to this category" (and, if set, gets this type).
  * Learned when the user recategorises or retypes a transaction. Types belong to each line, not to a category.
  */
-export type CategoryRule = { match: string; categoryId: string; subcategoryId?: string; type?: ItemType; payment?: Payment };
+export type CategoryRule = { match: string; categoryId: string; subcategoryId?: string; type?: ItemType; payment?: Payment; note?: string };
 
 export type BudgetState = {
   version: 1;

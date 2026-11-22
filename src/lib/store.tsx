@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
-import { newId, recategorizeIn, ruleFrom } from './budget.ts';
+import { newId, recategorizeIn, ruleFrom, sortIn, type SortPick } from './budget.ts';
 import { initialState, migrate } from './defaults.ts';
 import type { BudgetItem, BudgetState, Category, Income, Transaction } from './types.ts';
 
@@ -23,6 +23,8 @@ type Actions = {
   addIncome: (list: Income[]) => void;
   /** Recategorise a transaction; with `learn`, remember the merchant and sort its other unsorted transactions too. */
   recategorize: (id: string, categoryId: string, learn: boolean, subcategoryId?: string) => void;
+  /** Sort a payment from "to sort": category plus type (and payment tag). */
+  sortTransaction: (id: string, pick: SortPick, learn: boolean) => void;
   addSubcategory: (categoryId: string, name: string) => void;
   renameSubcategory: (id: string, name: string) => void;
   deleteSubcategory: (id: string) => void;
@@ -43,7 +45,11 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     AsyncStorage.getItem(KEY)
       .then((raw) => {
-        if (raw) setState(migrate(JSON.parse(raw)));
+        if (!raw) return;
+        const saved = JSON.parse(raw);
+        // Keep a copy of the data from before the one-time sorting reset, just in case.
+        if ((saved.dataVersion ?? 1) < 3) AsyncStorage.setItem(`${KEY}/before-sort-reset`, raw).catch(() => {});
+        setState(migrate(saved));
       })
       .catch(() => {})
       .finally(() => {
@@ -83,18 +89,22 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
           const exists = !!before;
           let rules = s.rules;
           const match = ruleFrom(full.description);
-          const changed = before && (before.type !== full.type || before.payment !== full.payment);
+          const changed = before && (before.type !== full.type || before.payment !== full.payment || (before.note ?? '') !== (full.note ?? ''));
           if (changed && full.source !== 'manual' && match && full.categoryId) {
-            const learned = { type: full.type, payment: full.payment };
+            const learned = { type: full.type, payment: full.payment, note: full.note };
             const i = rules.findIndex((r) => r.match === match);
             rules = i >= 0
               ? rules.map((r, j) => (j === i ? { ...r, ...learned } : r))
               : [...rules, { match, categoryId: full.categoryId, ...learned }];
           }
+          // A new note also labels the other payments from the same place that have none yet.
+          const noteOthers = !!full.note && (before?.note ?? '') !== full.note && !!match;
+          const same = (x: Transaction) => noteOthers && !x.note && ` ${x.description.toLowerCase()} `.includes(match);
+          const others = s.transactions.map((x) => (x.id !== full.id && same(x) ? { ...x, note: full.note } : x));
           return {
             ...s,
             rules,
-            transactions: exists ? s.transactions.map((x) => (x.id === full.id ? full : x)) : [...s.transactions, full],
+            transactions: exists ? others.map((x) => (x.id === full.id ? full : x)) : [...others, full],
           };
         }),
       deleteTransaction: (id) => update((s) => ({ ...s, transactions: s.transactions.filter((t) => t.id !== id) })),
@@ -115,6 +125,7 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
       deleteIncome: (id) => update((s) => ({ ...s, income: s.income.filter((x) => x.id !== id) })),
       addIncome: (list) => update((s) => ({ ...s, income: [...s.income, ...list] })),
       recategorize: (id, categoryId, learn, subcategoryId) => update((s) => recategorizeIn(s, id, categoryId, subcategoryId, learn)),
+      sortTransaction: (id, pick, learn) => update((s) => sortIn(s, id, pick, learn)),
       addSubcategory: (categoryId, name) =>
         update((s) => ({ ...s, subcategories: [...s.subcategories, { id: newId(), categoryId, name: name.trim() }] })),
       renameSubcategory: (id, name) =>

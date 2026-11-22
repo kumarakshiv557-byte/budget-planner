@@ -8,6 +8,7 @@ export const DEFAULT_CATEGORIES: Category[] = [
   { id: 'frivolous', name: 'Frivolous', color: '#eb6834', colorDark: '#d95926' },
   { id: 'utilities', name: 'Utility bills', color: '#eda100', colorDark: '#c98500' },
   { id: 'taxes', name: 'Taxes', color: '#e87ba4', colorDark: '#d55181' },
+  { id: 'work', name: 'Work', color: '#8b5fd1', colorDark: '#9b74e0' },
 ];
 
 export const DEFAULT_SUBCATEGORIES: Subcategory[] = [{ id: 'eating-out', categoryId: 'frivolous', name: 'Eating out / food delivery' }];
@@ -51,7 +52,7 @@ export function initialState(): BudgetState {
     transactions: [],
     income: [],
     rules: DEFAULT_RULES.map((r) => ({ ...r })),
-    dataVersion: 2,
+    dataVersion: DATA_VERSION,
   };
 }
 
@@ -64,10 +65,32 @@ export function migrate(saved: Partial<BudgetState>): BudgetState {
   let s: BudgetState = { ...initialState(), dataVersion: undefined, ...saved };
   if (!saved.subcategories) s = addEatingOut(s);
   if ((s.dataVersion ?? 1) < 2) s = dropSubscriptionsCategory(s);
+  if ((s.dataVersion ?? 1) < 3) s = resetSorting(addWork(s));
   return { ...s, dataVersion: DATA_VERSION };
 }
 
-export const DATA_VERSION = 2;
+export const DATA_VERSION = 3;
+
+function addWork(s: BudgetState): BudgetState {
+  if (s.categories.some((c) => c.id === 'work')) return s;
+  return { ...s, categories: [...s.categories, { ...DEFAULT_CATEGORIES.find((c) => c.id === 'work')! }] };
+}
+
+/**
+ * Start sorting over (asked for on 2026-11-22): every transaction goes back to "to sort" with no
+ * category, subcategory, type or payment tag, and learned merchant rules are dropped (the starter
+ * rules stay, for future imports). Budget lines, income and subcategories are kept.
+ */
+export function resetSorting(s: BudgetState): BudgetState {
+  return {
+    ...s,
+    rules: DEFAULT_RULES.map((r) => ({ ...r })),
+    transactions: s.transactions.map((t) => {
+      const { subcategoryId: _s, payment: _p, ...rest } = t;
+      return { ...rest, categoryId: null, type: 'variable-one-time' as const };
+    }),
+  };
+}
 
 /**
  * Subscriptions stop being a category: anything filed there moves to Frivolous and is tagged
