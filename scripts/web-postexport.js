@@ -10,7 +10,7 @@ let html = fs.readFileSync(indexPath, 'utf8');
 const tags = [
   `<link rel="manifest" href="${base}/manifest.webmanifest">`,
   `<link rel="apple-touch-icon" href="${base}/apple-touch-icon.png">`,
-  `<meta name="theme-color" content="#1f5fae">`,
+  `<meta name="theme-color" content="#111110">`,
   `<meta name="apple-mobile-web-app-capable" content="yes">`,
   `<meta name="apple-mobile-web-app-title" content="Budget">`,
 ].join('');
