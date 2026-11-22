@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
-import { newId, recategorizeIn, ruleFrom, sortIn, type SortPick } from './budget.ts';
+import { newId, recategorizeIn, resortIn, ruleFrom, sortIn, unsortIn, type SortPick } from './budget.ts';
 import { initialState, migrate } from './defaults.ts';
 import type { BudgetItem, BudgetState, Category, Income, Transaction } from './types.ts';
 
@@ -14,6 +14,10 @@ type Actions = {
   setBillPaid: (id: string, month: string, paid: boolean) => void;
   /** Save a transaction. If an edit changes its type, remember that type for the same merchant. */
   saveTransaction: (t: Omit<Transaction, 'id'> & { id?: string }) => void;
+  /** Correct a sorted payment; with alsoOthers, the same place's payments sorted alike and its remembered pick too. */
+  resortTransaction: (t: Transaction, alsoOthers: boolean) => void;
+  /** Send a payment back to "to sort" (with alsoOthers: the ones sorted alike too), forgetting the remembered pick. */
+  unsortTransaction: (id: string, alsoOthers: boolean) => void;
   deleteTransaction: (id: string) => void;
   addTransactions: (ts: Transaction[]) => void;
   /** Add synced transactions (and income, when the server sent it) and record the sync time. */
@@ -107,6 +111,8 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
             transactions: exists ? others.map((x) => (x.id === full.id ? full : x)) : [...others, full],
           };
         }),
+      resortTransaction: (t, alsoOthers) => update((s) => resortIn(s, t, alsoOthers)),
+      unsortTransaction: (id, alsoOthers) => update((s) => unsortIn(s, id, alsoOthers)),
       deleteTransaction: (id) => update((s) => ({ ...s, transactions: s.transactions.filter((t) => t.id !== id) })),
       addTransactions: (ts) => update((s) => ({ ...s, transactions: [...s.transactions, ...ts] })),
       applySync: (ts, at, income) =>

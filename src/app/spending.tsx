@@ -5,7 +5,7 @@ import { ThemedText } from '@/components/themed-text';
 import { Button, CategoryPicker, Card, Chips, Field, Label, MonthSwitcher, Screen, styles, useCategoryColor, useCategoryLabel, useIsDark, useMoney } from '@/components/ui';
 import { Spacing, TypeColors } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { billsCalendar, currentMonth, monthLabel, newId, paymentNote, transactionsIn } from '@/lib/budget';
+import { billsCalendar, currentMonth, monthLabel, newId, paymentNote, sortedAlike, transactionsIn } from '@/lib/budget';
 import { downloadCalendar } from '@/lib/calendar-file';
 import { parseRevolutCsv } from '@/lib/revolut-csv';
 import { pickCsvText } from '@/lib/pick-file';
@@ -28,7 +28,9 @@ const TYPE_PICKS: { id: TypePick; label: string }[] = ITEM_TYPES;
 const today = () => new Date().toISOString().slice(0, 10);
 
 export default function SpendingScreen() {
-  const { state, saveTransaction, deleteTransaction, addTransactions, sortTransaction, saveItem, addIncome, saveIncome, deleteIncome } = useBudget();
+  const { state, saveTransaction, resortTransaction, unsortTransaction, deleteTransaction, addTransactions, sortTransaction, saveItem, addIncome, saveIncome, deleteIncome } = useBudget();
+  // When fixing a sorted payment: also fix the others from the same place sorted the same way.
+  const [fixOthers, setFixOthers] = useState(true);
   // A bill just added from "to sort", offered for the calendar.
   const [newBill, setNewBill] = useState<BudgetItem | null>(null);
   const [incomeDraft, setIncomeDraft] = useState<IncomeDraft | null>(null);
@@ -93,8 +95,29 @@ export default function SpendingScreen() {
     }
   };
 
+  const editing = draft?.id ? state.transactions.find((t) => t.id === draft.id) : undefined;
+  const alike = editing && editing.source !== 'manual' ? sortedAlike(state, editing) : [];
   const save = () => {
     if (!draft || !valid) return;
+    if (editing && editing.categoryId && editing.source !== 'manual') {
+      const { subcategoryId: _s, payment: _p, note: _n, ...base } = editing;
+      resortTransaction(
+        {
+          ...base,
+          date: draft.date,
+          description: draft.description.trim(),
+          amount,
+          categoryId: draft.categoryId,
+          ...(draft.categoryId && draft.subcategoryId ? { subcategoryId: draft.subcategoryId } : {}),
+          type: draft.type,
+          ...(isRecurring(draft.type) && draft.payment ? { payment: draft.payment } : {}),
+          ...(draft.note?.trim() ? { note: draft.note.trim() } : {}),
+        },
+        fixOthers,
+      );
+      setDraft(null);
+      return;
+    }
     saveTransaction({
       id: draft.id,
       date: draft.date,
@@ -229,9 +252,31 @@ export default function SpendingScreen() {
               <Chips options={PAYMENTS} value={draft.payment ?? null} onChange={(payment) => setDraft({ ...draft, payment })} />
             </>
           ) : null}
+          {alike.length ? (
+            <Pressable
+              onPress={() => setFixOthers(!fixOthers)}
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: fixOthers }}
+              style={{ marginTop: Spacing.two }}>
+              <ThemedText type="small">
+                {fixOthers ? '☑' : '☐'} Also fix the {alike.length} other payment{alike.length === 1 ? '' : 's'} from here sorted the same way, and
+                remember this for next time
+              </ThemedText>
+            </Pressable>
+          ) : null}
           <View style={[styles.row, { marginTop: Spacing.three }]}>
             <Button label="Save" onPress={save} disabled={!valid} />
             <Button label="Cancel" kind="secondary" onPress={() => setDraft(null)} />
+            {editing?.categoryId && editing.source !== 'manual' ? (
+              <Button
+                label="Send back to sort"
+                kind="secondary"
+                onPress={() => {
+                  unsortTransaction(editing.id, fixOthers);
+                  setDraft(null);
+                }}
+              />
+            ) : null}
             {draft.id ? (
               <Button
                 label="Delete"

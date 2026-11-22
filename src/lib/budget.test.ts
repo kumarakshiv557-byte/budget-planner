@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { addMonths, billsCalendar, billsFor, breakdown, matchRule, recategorizeIn, ruleFrom, sortIn, subscriptionsTotal, moneyFlow, categorize, typeFor, summarizeMonth, trend } from './budget.ts';
+import { addMonths, billsCalendar, billsFor, breakdown, matchRule, recategorizeIn, resortIn, ruleFrom, sortIn, sortedAlike, subscriptionsTotal, unsortIn, moneyFlow, categorize, typeFor, summarizeMonth, trend } from './budget.ts';
 import { initialState, migrate } from './defaults.ts';
 import { parseRevolutCsv } from './revolut-csv.ts';
 import type { BudgetState } from './types.ts';
@@ -342,4 +342,33 @@ test('subscriptions stay out of the pie charts and are one block in the Sankey',
   assert.equal(flow.nodes.find((n) => n.id === 'cat:frivolous')!.value, 40);
   assert.equal(flow.nodes.find((n) => n.id === 'leftover')!.value, 149);
   assert.ok(!flow.links.some((l) => l.source === 'subscriptions'));
+});
+
+test('fixing a wrongly sorted payment also fixes the ones sorted alike and the remembered pick', () => {
+  const s = initialState();
+  s.rules = [{ match: 'zomato', categoryId: 'essentials', type: 'recurring-fixed' }];
+  const tx = (id: string, description: string, categoryId: string | null, type: 'recurring-fixed' | 'variable-one-time') =>
+    ({ id, date: '2026-11-10', description, amount: 5, categoryId, type, source: 'revolut' }) as const;
+  s.transactions = [
+    tx('a', 'Raz*zomato Online Order', 'essentials', 'recurring-fixed'),
+    tx('b', 'Pyu*zomato Limited', 'essentials', 'recurring-fixed'),
+    tx('c', 'Zomato', 'frivolous', 'variable-one-time'), // sorted differently by hand: left alone
+    tx('d', 'Lidl', 'essentials', 'recurring-fixed'),
+  ];
+  assert.deepEqual(sortedAlike(s, s.transactions[0]).map((t) => t.id), ['b']);
+  const fixed = { ...s.transactions[0], categoryId: 'frivolous', subcategoryId: 'eating-out', type: 'variable-one-time' as const, note: 'Late dinner' };
+  const out = resortIn(s, fixed, true);
+  assert.deepEqual(out.transactions.map((t) => [t.id, t.categoryId, t.subcategoryId, t.type]), [
+    ['a', 'frivolous', 'eating-out', 'variable-one-time'],
+    ['b', 'frivolous', 'eating-out', 'variable-one-time'],
+    ['c', 'frivolous', undefined, 'variable-one-time'],
+    ['d', 'essentials', undefined, 'recurring-fixed'],
+  ]);
+  assert.deepEqual(matchRule('Zomato order', out.rules), { match: 'zomato', categoryId: 'frivolous', subcategoryId: 'eating-out', type: 'variable-one-time', note: 'Late dinner' });
+  // only this one
+  assert.equal(resortIn(s, fixed, false).transactions[1].categoryId, 'essentials');
+  // back to "to sort", forgetting the remembered pick
+  const back = unsortIn(s, 'a', true);
+  assert.deepEqual(back.transactions.map((t) => t.categoryId), [null, null, 'frivolous', 'essentials']);
+  assert.equal(matchRule('Zomato order', back.rules), null);
 });
