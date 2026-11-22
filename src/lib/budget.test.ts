@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { addMonths, billsCalendar, billsFor, breakdown, matchRule, recategorizeIn, ruleFrom, moneyFlow, categorize, typeFor, summarizeMonth, trend } from './budget.ts';
+import { addMonths, billsCalendar, billsFor, breakdown, matchRule, recategorizeIn, ruleFrom, sortIn, moneyFlow, categorize, typeFor, summarizeMonth, trend } from './budget.ts';
 import { initialState, migrate } from './defaults.ts';
 import { parseRevolutCsv } from './revolut-csv.ts';
 import type { BudgetState } from './types.ts';
@@ -209,7 +209,7 @@ test('recategorize with remember sorts the other unsorted rows from the same mer
   assert.equal(once.transactions.find((t) => t.id === 'b')!.categoryId, null);
 });
 
-test('migrate adds the eating-out subcategory to old data and sorts what its rules recognise', () => {
+test('migrate adds the eating-out subcategory to old data', () => {
   const old = initialState() as Partial<ReturnType<typeof initialState>>;
   delete old.subcategories;
   delete old.dataVersion;
@@ -222,12 +222,11 @@ test('migrate adds the eating-out subcategory to old data and sorts what its rul
   assert.deepEqual(s.subcategories.map((c) => c.name), ['Eating out / food delivery']);
   assert.ok(!s.categories.some((c) => c.id === 'subscriptions'));
   assert.equal(s.rules.find((r) => r.match === 'cafe')!.subcategoryId, 'eating-out');
-  assert.deepEqual(s.transactions.map((t) => [t.categoryId, t.subcategoryId]), [['frivolous', 'eating-out'], [null, undefined]]);
   // already-migrated data is left alone
   assert.equal(migrate(s).rules.length, s.rules.length);
 });
 
-test('migrate retires the Subscriptions category: its payments become Frivolous, auto-paid', () => {
+test('migrate retires the Subscriptions category', () => {
   const old = { ...initialState(), dataVersion: 1 } as ReturnType<typeof initialState>;
   old.categories = [...old.categories, { id: 'subscriptions', name: 'Subscriptions', color: '#1baf7a', colorDark: '#199e70' }];
   old.rules = [...old.rules, { match: 'itunesappst', categoryId: 'essentials' }, { match: 'patreon', categoryId: 'subscriptions' }];
@@ -240,19 +239,49 @@ test('migrate retires the Subscriptions category: its payments become Frivolous,
   ];
   const m = migrate(old);
   assert.ok(!m.categories.some((c) => c.id === 'subscriptions'));
-  assert.deepEqual(m.transactions.map((t) => [t.id, t.categoryId, t.subcategoryId, t.type, t.payment]), [
-    ['a', 'frivolous', undefined, 'recurring-fixed', 'auto'],
-    ['b', 'frivolous', undefined, 'recurring-fixed', 'auto'],
-    ['c', 'frivolous', undefined, 'recurring-fixed', 'auto'],
-    ['d', 'essentials', undefined, 'variable-one-time', undefined],
-  ]);
   assert.deepEqual([m.items[0].categoryId, m.items[0].payment], ['frivolous', 'auto']);
-  assert.equal(matchRule('Paypal *itunesappst Apple', m.rules)!.payment, 'auto');
-  assert.equal(m.rules.find((r) => r.match === 'patreon')!.categoryId, 'frivolous');
-  assert.equal(m.dataVersion, 2);
-  // runs once: a later manual change sticks
-  const edited = { ...m, transactions: m.transactions.map((t) => (t.id === 'c' ? { ...t, categoryId: 'essentials' } : t)) };
-  assert.equal(migrate(edited).transactions.find((t) => t.id === 'c')!.categoryId, 'essentials');
+  assert.equal(m.dataVersion, 3);
+});
+
+test('version 3 adds Work and resets every sorting pick and learned rule, once', () => {
+  const old = { ...initialState(), dataVersion: 2 } as ReturnType<typeof initialState>;
+  old.categories = old.categories.filter((c) => c.id !== 'work');
+  old.rules = [...old.rules, { match: 'patreon', categoryId: 'frivolous', type: 'recurring-fixed', payment: 'auto' }];
+  old.items = [{ id: 'i', name: 'Rent', categoryId: 'essentials', type: 'recurring-fixed', payment: 'manual', amount: 800, startMonth: '2026-01' }];
+  old.transactions = [
+    { id: 'a', date: '2026-11-16', description: 'Zomato', amount: 10, categoryId: 'frivolous', subcategoryId: 'eating-out', type: 'recurring-fixed', payment: 'auto', source: 'revolut' },
+    { id: 'b', date: '2026-11-16', description: 'Lidl', amount: 13, categoryId: 'essentials', type: 'variable-one-time', source: 'manual' },
+  ];
+  const m = migrate(old);
+  assert.ok(m.categories.some((c) => c.id === 'work' && c.name === 'Work'));
+  assert.deepEqual(m.transactions.map((t) => [t.id, t.categoryId, t.subcategoryId, t.type, t.payment]), [
+    ['a', null, undefined, 'variable-one-time', undefined],
+    ['b', null, undefined, 'variable-one-time', undefined],
+  ]);
+  assert.ok(!m.rules.some((r) => r.match === 'patreon'));
+  assert.equal(m.items[0].payment, 'manual');
+  assert.equal(m.dataVersion, 3);
+  const sorted = { ...m, transactions: m.transactions.map((t) => ({ ...t, categoryId: 'work' })) };
+  assert.equal(migrate(sorted).transactions[0].categoryId, 'work');
+});
+
+test('sorting with a type: Subscription sets recurring fixed + auto and is remembered for the merchant', () => {
+  const s = initialState();
+  s.rules = [];
+  const tx = (id: string, description: string) =>
+    ({ id, date: '2026-11-10', description, amount: 5, categoryId: null, type: 'variable-one-time', source: 'revolut' }) as const;
+  s.transactions = [tx('a', 'Patreon* Membership'), tx('b', 'Patreon* Membership'), tx('c', 'Lidl')];
+  const out = sortIn(s, 'a', { categoryId: 'frivolous', type: 'recurring-fixed', payment: 'auto' }, true);
+  assert.deepEqual(out.transactions.map((t) => [t.id, t.categoryId, t.type, t.payment]), [
+    ['a', 'frivolous', 'recurring-fixed', 'auto'],
+    ['b', 'frivolous', 'recurring-fixed', 'auto'],
+    ['c', null, 'variable-one-time', undefined],
+  ]);
+  assert.equal(typeFor('Patreon* Membership', out.rules), 'recurring-fixed');
+  assert.equal(matchRule('Patreon* Membership', out.rules)!.payment, 'auto');
+  // a one-time type drops any payment tag
+  const once = sortIn(out, 'a', { categoryId: 'work', type: 'fixed-one-time', payment: 'auto' }, false);
+  assert.equal(once.transactions[0].payment, undefined);
 });
 
 test('bills: Pay-myself items for a month, with due dates and paid state', () => {

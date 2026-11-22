@@ -1,4 +1,4 @@
-import { isRecurring, type BudgetItem, type BudgetState, type ItemType, type Month, type Transaction } from './types.ts';
+import { isRecurring, type BudgetItem, type BudgetState, type ItemType, type Month, type Payment, type Transaction } from './types.ts';
 
 export function monthOf(date: string): Month {
   return date.slice(0, 7);
@@ -297,25 +297,36 @@ export function ruleFrom(description: string) {
  * Put a transaction in a category (and optionally a subcategory). With `learn`, remember the merchant
  * as a rule and sort every other still-unsorted transaction from the same merchant the same way.
  */
-export function recategorizeIn(
-  s: BudgetState,
-  id: string,
-  categoryId: string,
-  subcategoryId: string | undefined,
-  learn: boolean,
-): BudgetState {
+/** What you pick for a payment in "to sort". */
+export type SortPick = { categoryId: string; subcategoryId?: string; type?: ItemType; payment?: Payment };
+
+/**
+ * Sort one transaction. With `learn`, the merchant's rule remembers the pick (category, and type and
+ * payment tag when given) and every other unsorted payment from the same place is sorted the same way.
+ */
+export function sortIn(s: BudgetState, id: string, pick: SortPick, learn: boolean): BudgetState {
   const t = s.transactions.find((x) => x.id === id);
   if (!t) return s;
+  const { categoryId, subcategoryId, type, payment } = pick;
   const match = learn ? ruleFrom(t.description) : '';
   let rules = s.rules;
   if (match) {
-    const rule = { match, categoryId, ...(subcategoryId ? { subcategoryId } : {}) };
+    const rule = { match, categoryId, ...(subcategoryId ? { subcategoryId } : {}), ...(type ? { type } : {}), ...(payment ? { payment } : {}) };
     const i = rules.findIndex((r) => r.match === match);
-    rules = i >= 0 ? rules.map((r, j) => (j === i ? { ...rule, ...(r.type ? { type: r.type } : {}) } : r)) : [...rules, rule];
+    rules =
+      i >= 0
+        ? rules.map((r, j) => (j === i ? { ...rule, ...(!type && r.type ? { type: r.type } : {}), ...(!type && r.payment ? { payment: r.payment } : {}) } : r))
+        : [...rules, rule];
   }
-  const set = (x: Transaction) => {
+  const set = (x: Transaction): Transaction => {
     const { subcategoryId: _old, ...rest } = x;
-    return { ...rest, categoryId, ...(subcategoryId ? { subcategoryId } : {}) };
+    const out: Transaction = { ...rest, categoryId, ...(subcategoryId ? { subcategoryId } : {}) };
+    if (type) {
+      out.type = type;
+      if (isRecurring(type) && payment) out.payment = payment;
+      else delete out.payment;
+    }
+    return out;
   };
   return {
     ...s,
@@ -324,6 +335,11 @@ export function recategorizeIn(
       x.id === id || (match && !x.categoryId && ` ${x.description.toLowerCase()} `.includes(match)) ? set(x) : x,
     ),
   };
+}
+
+/** Category-only sorting (kept for callers that only pick a category). */
+export function recategorizeIn(s: BudgetState, id: string, categoryId: string, subcategoryId: string | undefined, learn: boolean): BudgetState {
+  return sortIn(s, id, { categoryId, subcategoryId }, learn);
 }
 
 export type Bill = { item: BudgetItem; due: string; daysLeft: number; paid: boolean };
