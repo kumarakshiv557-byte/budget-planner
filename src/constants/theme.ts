@@ -35,6 +35,14 @@ export const Colors = {
   },
 } as const;
 
+/** Fixed colours for the four item types (same categorical palette as categories; light / dark steps). */
+export const TypeColors = {
+  'recurring-fixed': ['#1baf7a', '#199e70'],
+  'recurring-variable': ['#2a78d6', '#3987e5'],
+  'variable-one-time': ['#eb6834', '#d95926'],
+  'fixed-one-time': ['#e87ba4', '#d55181'],
+} as const;
+
 export type ThemeColor = keyof typeof Colors.light & keyof typeof Colors.dark;
 
 export const Fonts = Platform.select({

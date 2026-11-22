@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
-import Svg, { Circle, Line, Path, Rect, Text as SvgText } from 'react-native-svg';
+import Svg, { Circle, G, Line, Path, Rect, Text as SvgText } from 'react-native-svg';
 
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
@@ -35,7 +35,7 @@ export type PairRow = { key: string; label: string; forecast: number; actual: nu
  * Forecast vs actual as paired horizontal bars, one row per category (or type).
  * Each row is labelled with its name and both numbers, so the chart reads as a table too.
  */
-export function PairedBars({ rows }: { rows: PairRow[] }) {
+export function PairedBars({ rows, onPressRow }: { rows: PairRow[]; onPressRow?: (key: string) => void }) {
   const theme = useTheme();
   const money = useMoney();
   const max = Math.max(1, ...rows.map((r) => Math.max(r.forecast, r.actual)));
@@ -51,7 +51,7 @@ export function PairedBars({ rows }: { rows: PairRow[] }) {
         return (
           <Pressable
             key={r.key}
-            onPress={() => setSelected(on ? null : r.key)}
+            onPress={() => (onPressRow ? onPressRow(r.key) : setSelected(on ? null : r.key))}
             accessibilityLabel={`${r.label}: forecast ${money(r.forecast)}, actual ${money(r.actual)}`}
             style={{ gap: 4 }}>
             <View style={styles.rowHead}>
@@ -214,6 +214,115 @@ function niceMax(v: number) {
   return step * mag;
 }
 
+export type DonutSlice = { key: string; label: string; value: number; color: string };
+
+function arc(cx: number, cy: number, r: number, inner: number, a0: number, a1: number) {
+  const pt = (rad: number, a: number) => [cx + rad * Math.sin(a), cy - rad * Math.cos(a)];
+  const large = a1 - a0 > Math.PI ? 1 : 0;
+  const [x0, y0] = pt(r, a0);
+  const [x1, y1] = pt(r, a1);
+  const [x2, y2] = pt(inner, a1);
+  const [x3, y3] = pt(inner, a0);
+  return `M${x0} ${y0} A${r} ${r} 0 ${large} 1 ${x1} ${y1} L${x2} ${y2} A${inner} ${inner} 0 ${large} 0 ${x3} ${y3} Z`;
+}
+
+/**
+ * Pie (donut) chart with a tappable legend. Tapping a slice or its legend row selects it;
+ * the selected slice is pulled out slightly and the others fade, and the centre shows its amount.
+ */
+export function Donut({
+  slices,
+  selected,
+  onSelect,
+  emptyText,
+}: {
+  slices: DonutSlice[];
+  selected: string | null;
+  onSelect: (key: string | null) => void;
+  emptyText: string;
+}) {
+  const theme = useTheme();
+  const money = useMoney();
+  const positive = slices.filter((s) => s.value > 0);
+  const total = positive.reduce((s, x) => s + x.value, 0);
+  if (total <= 0) {
+    return (
+      <ThemedText type="small" themeColor="textSecondary">
+        {emptyText}
+      </ThemedText>
+    );
+  }
+  const size = 240;
+  const c = size / 2;
+  const r = 104;
+  const inner = 62;
+  const gap = positive.length > 1 ? 0.012 : 0;
+  let a = 0;
+  const sel = positive.find((s) => s.key === selected);
+  return (
+    <View style={{ gap: Spacing.three }}>
+      <View style={{ alignItems: 'center' }}>
+        <Svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+          {positive.map((s) => {
+            const a0 = a;
+            const a1 = (a += (s.value / total) * Math.PI * 2);
+            const on = s.key === selected;
+            const mid = (a0 + a1) / 2;
+            const push = on && positive.length > 1 ? 6 : 0;
+            const press = () => onSelect(on ? null : s.key);
+            return (
+              <G key={s.key} transform={`translate(${push * Math.sin(mid)} ${-push * Math.cos(mid)})`}>
+                {positive.length === 1 ? (
+                  <Path
+                    d={`${arc(c, c, r, inner, 0, Math.PI)} ${arc(c, c, r, inner, Math.PI, Math.PI * 2)}`}
+                    fill={s.color}
+                    onPress={press}
+                  />
+                ) : (
+                  <Path
+                    d={arc(c, c, r, inner, a0 + gap, a1 - gap)}
+                    fill={s.color}
+                    opacity={selected && !on ? 0.35 : 1}
+                    onPress={press}
+                  />
+                )}
+              </G>
+            );
+          })}
+          <SvgText x={c} y={c - 4} fontSize={13} fontFamily="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" fill={theme.textSecondary} textAnchor="middle">
+            {sel ? sel.label : 'Total'}
+          </SvgText>
+          <SvgText x={c} y={c + 18} fontSize={20} fontFamily="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" fontWeight="700" fill={theme.text} textAnchor="middle">
+            {money(sel ? sel.value : total)}
+          </SvgText>
+        </Svg>
+      </View>
+      <View style={{ gap: 2 }}>
+        {positive.map((s) => {
+          const on = s.key === selected;
+          return (
+            <Pressable
+              key={s.key}
+              onPress={() => onSelect(on ? null : s.key)}
+              accessibilityRole="button"
+              accessibilityState={{ selected: on }}
+              accessibilityLabel={`${s.label}: ${money(s.value)}, ${Math.round((s.value / total) * 100)} percent`}
+              style={[styles.rowHead, styles.legendRow, { backgroundColor: on ? theme.backgroundSelected : 'transparent' }]}>
+              <View style={[styles.swatch, { backgroundColor: s.color }]} />
+              <ThemedText type={on ? 'smallBold' : 'small'} style={{ flex: 1 }}>
+                {s.label}
+              </ThemedText>
+              <ThemedText type="small" themeColor="textSecondary">
+                {money(s.value)} · {Math.round((s.value / total) * 100)}%
+              </ThemedText>
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
 /** A headline number with an optional comparison line. */
 export function StatTile({ label, value, note, tone }: { label: string; value: string; note?: string; tone?: 'critical' | 'good' }) {
   const theme = useTheme();
@@ -237,6 +346,7 @@ const styles = StyleSheet.create({
   legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   legendBar: { width: 16, height: 8, borderRadius: 4 },
   rowHead: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
+  legendRow: { paddingVertical: 8, paddingHorizontal: Spacing.two, borderRadius: 8 },
   swatch: { width: 10, height: 10, borderRadius: 5 },
   track: { height: 10, borderRadius: 4, overflow: 'hidden' },
   fill: { height: '100%', borderRadius: 4 },

@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { View } from 'react-native';
 
+import { BreakdownSheet } from '@/components/breakdown-sheet';
 import { PairedBars, ShareBar, StatTile, TrendChart } from '@/components/charts';
 import { ThemedText } from '@/components/themed-text';
 import { Card, MonthSwitcher, Screen, styles, useCategoryColor, useMoney } from '@/components/ui';
-import { currentMonth, monthLabel, summarizeMonth, trend } from '@/lib/budget';
+import { type BreakdownDim, currentMonth, monthLabel, summarizeMonth, trend } from '@/lib/budget';
 import { useBudget } from '@/lib/store';
 import { ITEM_TYPES } from '@/lib/types';
 
@@ -15,6 +16,7 @@ export default function OverviewScreen() {
   const money = useMoney();
   const colorFor = useCategoryColor();
   const [month, setMonth] = useState(currentMonth());
+  const [pie, setPie] = useState<{ dim: BreakdownDim; key: string | null } | null>(null);
 
   const summary = summarizeMonth(state, month);
   const months = trend(state, month, 6);
@@ -44,8 +46,9 @@ export default function OverviewScreen() {
         />
       </View>
 
-      <Card title="Forecast vs actual by category" subtitle="Tap a category for what's left.">
+      <Card title="Forecast vs actual by category" subtitle="Tap a category to see it in a pie chart with its expenses.">
         <PairedBars
+          onPressRow={(key) => setPie({ dim: 'category', key })}
           rows={summary.byCategory.map((r) => ({
             key: r.categoryId ?? 'none',
             label: catName(r.categoryId),
@@ -79,11 +82,15 @@ export default function OverviewScreen() {
         />
       </Card>
 
-      <Card title="Forecast vs actual by type" subtitle="Fixed costs are predictable; variable and one-time costs are where budgets slip.">
+      <Card
+        title="Forecast vs actual by type"
+        subtitle="Fixed costs are predictable; variable and one-time costs are where budgets slip. Tap a type for its pie chart.">
         <PairedBars
+          onPressRow={(key) => setPie({ dim: 'type', key })}
           rows={summary.byType.map((r) => ({ key: r.type, label: TYPE_LABEL[r.type], forecast: r.forecast, actual: r.actual }))}
         />
       </Card>
+      <BreakdownSheet dim={pie?.dim ?? null} initialKey={pie?.key} month={month} onClose={() => setPie(null)} />
     </Screen>
   );
 }
