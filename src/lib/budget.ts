@@ -93,14 +93,24 @@ export function trend(state: BudgetState, end: Month, count = 6): MonthSummary[]
  * Pick a category for a bank description using the user's rules (longest match wins,
  * so "uber eats" beats "uber").
  */
-export function categorize(description: string, rules: BudgetState['rules']): string | null {
+/** The longest rule whose text appears in the description. */
+export function matchRule(description: string, rules: BudgetState['rules']) {
   const d = ` ${description.toLowerCase()} `;
-  let best: { len: number; id: string } | null = null;
+  let best: BudgetState['rules'][number] | null = null;
   for (const r of rules) {
     const m = r.match.toLowerCase();
-    if (m && d.includes(m) && (!best || m.length > best.len)) best = { len: m.length, id: r.categoryId };
+    if (m && d.includes(m) && (!best || m.length > best.match.length)) best = r;
   }
-  return best?.id ?? null;
+  return best;
+}
+
+export function categorize(description: string, rules: BudgetState['rules']): string | null {
+  return matchRule(description, rules)?.categoryId ?? null;
+}
+
+/** Type for an imported line: what was learned for that merchant, else one-time variable. */
+export function typeFor(description: string, rules: BudgetState['rules']): ItemType {
+  return matchRule(description, rules)?.type ?? 'variable-one-time';
 }
 
 export function formatMoney(amount: number, currency: string) {

@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { addMonths, categorize, summarizeMonth, trend } from './budget.ts';
+import { addMonths, categorize, typeFor, summarizeMonth, trend } from './budget.ts';
 import { initialState } from './defaults.ts';
 import { parseRevolutCsv } from './revolut-csv.ts';
 import type { BudgetState } from './types.ts';
@@ -78,9 +78,9 @@ test('Revolut CSV: keeps spending and refunds, skips top-ups, income and pending
     r.transactions.map((t) => [t.date, t.description, t.amount, t.categoryId, t.type]),
     [
       ['2026-11-02', 'Netflix.com', 12.99, 'subscriptions', 'recurring-fixed'],
-      ['2026-11-03', 'Pingo Doce, Lisboa', 45.1, 'essentials', 'recurring-variable'],
+      ['2026-11-03', 'Pingo Doce, Lisboa', 45.1, 'essentials', 'variable-one-time'],
       ['2026-11-07', 'Cash at ATM', 102, null, 'variable-one-time'],
-      ['2026-11-08', 'Pingo Doce', -5.1, 'essentials', 'recurring-variable'],
+      ['2026-11-08', 'Pingo Doce', -5.1, 'essentials', 'variable-one-time'],
     ],
   );
   assert.equal(r.skippedOther, 3);
@@ -117,4 +117,14 @@ test('synced rows: categorised, typed and de-duplicated', async () => {
   assert.equal(nextDateFrom(undefined), undefined);
   assert.equal(nextDateFrom('2026-11-20T10:00:00Z', new Date('2026-11-22T00:00:00Z')), '2026-11-15');
   assert.equal(nextDateFrom('2026-01-01T00:00:00Z', new Date('2026-11-22T00:00:00Z')), '2026-08-25');
+});
+
+test('type comes from the merchant rule, not the category', () => {
+  const rules = [
+    { match: 'netflix', categoryId: 'subscriptions', type: 'recurring-fixed' as const },
+    { match: 'amazon', categoryId: 'subscriptions' },
+  ];
+  assert.equal(typeFor('NETFLIX.COM', rules), 'recurring-fixed');
+  assert.equal(typeFor('Amazon Marketplace', rules), 'variable-one-time');
+  assert.equal(typeFor('Unknown shop', rules), 'variable-one-time');
 });

@@ -1,4 +1,4 @@
-import { categorize } from './budget.ts';
+import { categorize, typeFor } from './budget.ts';
 import type { BudgetState, Transaction } from './types.ts';
 
 /** Split one CSV line, honouring double-quoted fields. */
@@ -57,7 +57,6 @@ export function parseRevolutCsv(text: string, state: BudgetState, idFor: () => s
   }
 
   const existing = new Set(state.transactions.map((t) => t.externalId).filter(Boolean));
-  const categoryType = new Map(state.categories.map((c) => [c.id, c.defaultType]));
   const currencies = new Set<string>();
   const transactions: Transaction[] = [];
   let skippedDuplicates = 0;
@@ -100,7 +99,7 @@ export function parseRevolutCsv(text: string, state: BudgetState, idFor: () => s
       // spending is stored positive; a refund is negative spending
       amount: Math.round((-amount + fee) * 100) / 100,
       categoryId,
-      type: (categoryId && categoryType.get(categoryId)) || 'variable-one-time',
+      type: typeFor(description, state.rules),
       source: 'csv',
       externalId,
     });

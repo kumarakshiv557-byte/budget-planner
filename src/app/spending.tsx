@@ -110,9 +110,7 @@ export default function SpendingScreen() {
             options={catOptions}
             value={draft.categoryId}
             swatch={swatch}
-            onChange={(categoryId) =>
-              setDraft({ ...draft, categoryId, type: state.categories.find((c) => c.id === categoryId)?.defaultType ?? draft.type })
-            }
+            onChange={(categoryId) => setDraft({ ...draft, categoryId })}
           />
           <Label>Type</Label>
           <Chips options={ITEM_TYPES} value={draft.type} onChange={(type) => setDraft({ ...draft, type })} />

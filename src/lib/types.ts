@@ -12,15 +12,13 @@ export const ITEM_TYPES: { id: ItemType; label: string; hint: string }[] = [
   { id: 'fixed-one-time', label: 'One-time, fixed', hint: 'Known lump sum on a date (advance tax)' },
 ];
 
-export function isRecurring(type: ItemType) {
+export function isRecurring(type: ItemType | null) {
   return type === 'recurring-fixed' || type === 'recurring-variable';
 }
 
 export type Category = {
   id: string;
   name: string;
-  /** Default type for new items in this category. The user can change it. */
-  defaultType: ItemType;
   /** Fixed categorical colour, assigned by order and never re-used. */
   color: string;
   colorDark: string;
@@ -58,8 +56,11 @@ export type Transaction = {
   externalId?: string;
 };
 
-/** "Anything matching this text goes to this category." Learned when the user recategorises. */
-export type CategoryRule = { match: string; categoryId: string };
+/**
+ * "Anything matching this text goes to this category" (and, if set, gets this type).
+ * Learned when the user recategorises or retypes a transaction. Types belong to each line, not to a category.
+ */
+export type CategoryRule = { match: string; categoryId: string; type?: ItemType };
 
 export type BudgetState = {
   version: 1;
