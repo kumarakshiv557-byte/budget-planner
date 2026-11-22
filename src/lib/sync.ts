@@ -22,6 +22,7 @@ export function mergeSynced(state: BudgetState, rows: SyncedTransaction[], idFor
       ...(rule?.subcategoryId ? { subcategoryId: rule.subcategoryId } : {}),
       type: typeFor(r.description, state.rules),
       ...(rule?.payment ? { payment: rule.payment } : {}),
+      ...(rule?.note ? { note: rule.note } : {}),
       source: 'revolut',
       externalId: r.externalId,
     });

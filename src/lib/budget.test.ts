@@ -284,6 +284,19 @@ test('sorting with a type: Subscription sets recurring fixed + auto and is remem
   assert.equal(once.transactions[0].payment, undefined);
 });
 
+test('a note is remembered for the merchant and labels the other payments from there', () => {
+  const s = initialState();
+  s.rules = [];
+  const tx = (id: string, description: string) =>
+    ({ id, date: '2026-11-10', description, amount: 5, categoryId: null, type: 'variable-one-time', source: 'revolut' }) as const;
+  s.transactions = [tx('a', 'Wework Lisboa'), tx('b', 'Wework Lisboa'), tx('c', 'Lidl')];
+  const out = sortIn(s, 'a', { categoryId: 'work', type: 'recurring-fixed', note: '  Desk rent  ' }, true);
+  assert.deepEqual(out.transactions.map((t) => t.note), ['Desk rent', 'Desk rent', undefined]);
+  assert.equal(matchRule('WEWORK LISBOA 12', out.rules)!.note, 'Desk rent');
+  // sorting again without a note keeps the remembered one
+  assert.equal(sortIn(out, 'a', { categoryId: 'work', type: 'recurring-fixed' }, true).rules.find((r) => r.match === 'wework')!.note, 'Desk rent');
+});
+
 test('bills: Pay-myself items for a month, with due dates and paid state', () => {
   const s = initialState();
   s.items = [

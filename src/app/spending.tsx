@@ -11,7 +11,7 @@ import { pickCsvText } from '@/lib/pick-file';
 import { useBudget } from '@/lib/store';
 import { ITEM_TYPES, PAYMENTS, isRecurring, type ItemType, type Payment, type Transaction } from '@/lib/types';
 
-type Draft = { id?: string; date: string; description: string; amount: string; categoryId: string | null; subcategoryId?: string; type: ItemType; payment?: Payment };
+type Draft = { id?: string; date: string; description: string; amount: string; categoryId: string | null; subcategoryId?: string; type: ItemType; payment?: Payment; note?: string };
 
 type IncomeDraft = { id?: string; date: string; description: string; amount: string };
 
@@ -34,7 +34,7 @@ export default function SpendingScreen() {
   const [notice, setNotice] = useState<{ text: string; error?: boolean } | null>(null);
   const [learn, setLearn] = useState(true);
   // Half-finished picks in "to sort": a row is sorted once it has both a category and a type.
-  const [picks, setPicks] = useState<Record<string, { cat?: string; type?: TypePick }>>({});
+  const [picks, setPicks] = useState<Record<string, { cat?: string; type?: TypePick; note?: string }>>({});
 
   const incomeList = transactionsIn(state.income, month).sort((a, b) => b.date.localeCompare(a.date));
   const incomeAmount = Number((incomeDraft?.amount ?? '').replace(',', '.'));
@@ -90,6 +90,7 @@ export default function SpendingScreen() {
       subcategoryId: draft.categoryId ? draft.subcategoryId : undefined,
       type: draft.type,
       payment: isRecurring(draft.type) ? draft.payment : undefined,
+      note: draft.note?.trim() || undefined,
       source: draft.id ? (state.transactions.find((t) => t.id === draft.id)?.source ?? 'manual') : 'manual',
       externalId: draft.id ? state.transactions.find((t) => t.id === draft.id)?.externalId : undefined,
     });
@@ -118,7 +119,7 @@ export default function SpendingScreen() {
     const sc = next.cat.startsWith('s:') ? state.subcategories.find((x) => x.id === next.cat!.slice(2)) : undefined;
     const categoryId = sc ? sc.categoryId : next.cat.slice(2);
     const typeAndTag = next.type === 'subscription' ? { type: 'recurring-fixed' as const, payment: 'auto' as const } : { type: next.type };
-    sortTransaction(tId, { categoryId, subcategoryId: sc?.id, ...typeAndTag }, learn);
+    sortTransaction(tId, { categoryId, subcategoryId: sc?.id, ...typeAndTag, note: next.note }, learn);
   };
 
   return (
@@ -155,6 +156,14 @@ export default function SpendingScreen() {
               placeholder="0"
             />
             <Field label="Date (YYYY-MM-DD)" value={draft.date} onChangeText={(date) => setDraft({ ...draft, date })} />
+          </View>
+          <View style={styles.row}>
+            <Field
+              label="What's it for? (optional, remembered for this place)"
+              value={draft.note ?? ''}
+              onChangeText={(note) => setDraft({ ...draft, note })}
+              placeholder="e.g. Office lunch with the team"
+            />
           </View>
           <Label>Category</Label>
           <CategoryPicker
@@ -202,6 +211,12 @@ export default function SpendingScreen() {
                 </ThemedText>
                 <ThemedText type="smallBold">{money(t.amount)}</ThemedText>
               </View>
+              <Field
+                label="What's it for? (optional)"
+                value={picks[t.id]?.note ?? ''}
+                onChangeText={(note) => setPicks({ ...picks, [t.id]: { ...picks[t.id], note } })}
+                placeholder="e.g. Netflix for the family"
+              />
               <ThemedText type="small" themeColor="textSecondary">
                 Category
               </ThemedText>
@@ -285,7 +300,10 @@ export default function SpendingScreen() {
                 style={{ flexDirection: 'row', gap: Spacing.two, alignItems: 'center', paddingVertical: 6, borderTopWidth: 1, borderColor: theme.border }}>
                 <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: colorFor(c) }} />
                 <View style={{ flex: 1 }}>
-                  <ThemedText type="small">{t.description}</ThemedText>
+                  {t.note ? <ThemedText type="smallBold">{t.note}</ThemedText> : null}
+                  <ThemedText type="small" themeColor={t.note ? 'textSecondary' : undefined}>
+                    {t.description}
+                  </ThemedText>
                   <ThemedText type="small" themeColor="textSecondary">
                     {t.date} · {catLabel(t.categoryId, t.subcategoryId)} · {TYPE_LABEL[t.type]}
                     {t.payment ? ` · ${paymentNote(t)}` : ''}

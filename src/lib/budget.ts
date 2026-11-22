@@ -159,7 +159,7 @@ export function breakdown(state: BudgetState, month: Month, dim: BreakdownDim, s
     side === 'actual'
       ? transactionsIn(state.transactions, month).map((t) => ({
           id: t.id,
-          label: t.description,
+          label: t.note ? `${t.note} · ${t.description}` : t.description,
           date: t.date,
           amount: t.amount,
           categoryId: t.categoryId,
@@ -298,7 +298,7 @@ export function ruleFrom(description: string) {
  * as a rule and sort every other still-unsorted transaction from the same merchant the same way.
  */
 /** What you pick for a payment in "to sort". */
-export type SortPick = { categoryId: string; subcategoryId?: string; type?: ItemType; payment?: Payment };
+export type SortPick = { categoryId: string; subcategoryId?: string; type?: ItemType; payment?: Payment; note?: string };
 
 /**
  * Sort one transaction. With `learn`, the merchant's rule remembers the pick (category, and type and
@@ -308,15 +308,25 @@ export function sortIn(s: BudgetState, id: string, pick: SortPick, learn: boolea
   const t = s.transactions.find((x) => x.id === id);
   if (!t) return s;
   const { categoryId, subcategoryId, type, payment } = pick;
+  const note = pick.note?.trim() || undefined;
   const match = learn ? ruleFrom(t.description) : '';
   let rules = s.rules;
   if (match) {
-    const rule = { match, categoryId, ...(subcategoryId ? { subcategoryId } : {}), ...(type ? { type } : {}), ...(payment ? { payment } : {}) };
+    const rule = {
+      match,
+      categoryId,
+      ...(subcategoryId ? { subcategoryId } : {}),
+      ...(type ? { type } : {}),
+      ...(payment ? { payment } : {}),
+      ...(note ? { note } : {}),
+    };
     const i = rules.findIndex((r) => r.match === match);
-    rules =
-      i >= 0
-        ? rules.map((r, j) => (j === i ? { ...rule, ...(!type && r.type ? { type: r.type } : {}), ...(!type && r.payment ? { payment: r.payment } : {}) } : r))
-        : [...rules, rule];
+    const keep = (r: (typeof rules)[number]) => ({
+      ...(!type && r.type ? { type: r.type } : {}),
+      ...(!type && r.payment ? { payment: r.payment } : {}),
+      ...(!note && r.note ? { note: r.note } : {}),
+    });
+    rules = i >= 0 ? rules.map((r, j) => (j === i ? { ...rule, ...keep(r) } : r)) : [...rules, rule];
   }
   const set = (x: Transaction): Transaction => {
     const { subcategoryId: _old, ...rest } = x;
@@ -326,6 +336,7 @@ export function sortIn(s: BudgetState, id: string, pick: SortPick, learn: boolea
       if (isRecurring(type) && payment) out.payment = payment;
       else delete out.payment;
     }
+    if (note) out.note = note;
     return out;
   };
   return {

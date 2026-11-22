@@ -89,18 +89,22 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
           const exists = !!before;
           let rules = s.rules;
           const match = ruleFrom(full.description);
-          const changed = before && (before.type !== full.type || before.payment !== full.payment);
+          const changed = before && (before.type !== full.type || before.payment !== full.payment || (before.note ?? '') !== (full.note ?? ''));
           if (changed && full.source !== 'manual' && match && full.categoryId) {
-            const learned = { type: full.type, payment: full.payment };
+            const learned = { type: full.type, payment: full.payment, note: full.note };
             const i = rules.findIndex((r) => r.match === match);
             rules = i >= 0
               ? rules.map((r, j) => (j === i ? { ...r, ...learned } : r))
               : [...rules, { match, categoryId: full.categoryId, ...learned }];
           }
+          // A new note also labels the other payments from the same place that have none yet.
+          const noteOthers = !!full.note && (before?.note ?? '') !== full.note && !!match;
+          const same = (x: Transaction) => noteOthers && !x.note && ` ${x.description.toLowerCase()} `.includes(match);
+          const others = s.transactions.map((x) => (x.id !== full.id && same(x) ? { ...x, note: full.note } : x));
           return {
             ...s,
             rules,
-            transactions: exists ? s.transactions.map((x) => (x.id === full.id ? full : x)) : [...s.transactions, full],
+            transactions: exists ? others.map((x) => (x.id === full.id ? full : x)) : [...others, full],
           };
         }),
       deleteTransaction: (id) => update((s) => ({ ...s, transactions: s.transactions.filter((t) => t.id !== id) })),
