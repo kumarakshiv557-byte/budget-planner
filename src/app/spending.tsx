@@ -18,13 +18,13 @@ type IncomeDraft = { id?: string; date: string; description: string; amount: str
 
 const TYPE_LABEL = Object.fromEntries(ITEM_TYPES.map((t) => [t.id, t.label]));
 /** Type choices when sorting, with a one-tap "Subscription" (recurring, fixed, debited automatically) first. */
-type TypePick = ItemType | 'subscription';
+type TypePick = ItemType;
 type Pick = { cat?: string; type?: TypePick; pay?: Payment; due?: string; note?: string };
 const PAY_PICKS: { id: Payment; label: string }[] = [
   { id: 'auto', label: '⚡ Subscription (auto-debited)' },
   { id: 'manual', label: 'Pay myself' },
 ];
-const TYPE_PICKS: { id: TypePick; label: string }[] = [{ id: 'subscription', label: '⚡ Subscription' }, ...ITEM_TYPES];
+const TYPE_PICKS: { id: TypePick; label: string }[] = ITEM_TYPES;
 const today = () => new Date().toISOString().slice(0, 10);
 
 export default function SpendingScreen() {
@@ -113,11 +113,15 @@ export default function SpendingScreen() {
 
   const edit = (t: Transaction) => setDraft({ ...t, amount: String(t.amount) });
   // For quick sorting: every category, each followed by its subcategories ("s:" ids).
-  const sortOptions = state.categories.flatMap((c) => [
-    { id: `c:${c.id}`, label: c.name },
-    ...state.subcategories.filter((x) => x.categoryId === c.id).map((x) => ({ id: `s:${x.id}`, label: `${c.name} › ${x.name}` })),
-  ]);
-  const typeSwatch = (id: TypePick) => TypeColors[id === 'subscription' ? 'recurring-fixed' : id][dark ? 1 : 0];
+  // Quick sorting shows categories only; a picked category's subcategories appear under it.
+  const sortOptions = state.categories.map((c) => ({ id: `c:${c.id}`, label: c.name }));
+  const catOfPick = (id?: string) =>
+    !id ? undefined : id.startsWith('s:') ? state.subcategories.find((x) => x.id === id.slice(2))?.categoryId : id.slice(2);
+  const subOptions = (catId?: string) => {
+    const subs = state.subcategories.filter((x) => x.categoryId === catId);
+    return subs.length ? [{ id: `c:${catId}`, label: 'No subcategory' }, ...subs.map((x) => ({ id: `s:${x.id}`, label: x.name }))] : [];
+  };
+  const typeSwatch = (id: TypePick) => TypeColors[id][dark ? 1 : 0];
   const sortSwatch = (id: string) => {
     const catId = id.startsWith('s:') ? state.subcategories.find((x) => x.id === id.slice(2))?.categoryId : id.slice(2);
     return colorFor(state.categories.find((c) => c.id === catId));
@@ -139,8 +143,8 @@ export default function SpendingScreen() {
     setPicks(rest);
     const sc = next.cat!.startsWith('s:') ? state.subcategories.find((x) => x.id === next.cat!.slice(2)) : undefined;
     const categoryId = sc ? sc.categoryId : next.cat!.slice(2);
-    const type = next.type === 'subscription' ? 'recurring-fixed' : next.type!;
-    const payment = next.type === 'subscription' ? 'auto' : recurring ? next.pay : undefined;
+    const type = next.type!;
+    const payment = recurring ? next.pay : undefined;
     sortTransaction(t.id, { categoryId, subcategoryId: sc?.id, type, payment, note: next.note }, learn);
     if (payment === 'manual') {
       const name = (next.note?.trim() || t.description).slice(0, 60);
@@ -262,7 +266,7 @@ export default function SpendingScreen() {
       {uncategorised.length ? (
         <Card
           title={`${uncategorised.length} to sort`}
-          subtitle="Pick a category and a type for each. ⚡ Subscription means recurring, fixed and debited automatically. With 'remember' on, other payments from the same place are sorted too, now and in future.">
+          subtitle="Pick a category and a type for each. Recurring ones also ask how they're paid: Subscription (auto-debited) or Pay myself. With 'remember' on, other payments from the same place are sorted too, now and in future.">
           <Pressable onPress={() => setLearn(!learn)} accessibilityRole="checkbox" accessibilityState={{ checked: learn }}>
             <ThemedText type="small">{learn ? '☑' : '☐'} Remember my choices</ThemedText>
           </Pressable>
@@ -283,7 +287,17 @@ export default function SpendingScreen() {
               <ThemedText type="small" themeColor="textSecondary">
                 Category
               </ThemedText>
-              <Chips options={sortOptions} value={picks[t.id]?.cat ?? null} swatch={sortSwatch} onChange={(cat) => pickFor(t, { cat })} />
+              <Chips
+                options={sortOptions}
+                value={catOfPick(picks[t.id]?.cat) ? `c:${catOfPick(picks[t.id]?.cat)}` : null}
+                swatch={sortSwatch}
+                onChange={(cat) => pickFor(t, { cat })}
+              />
+              {subOptions(catOfPick(picks[t.id]?.cat)).length ? (
+                <View style={{ paddingLeft: Spacing.three }}>
+                  <Chips options={subOptions(catOfPick(picks[t.id]?.cat))} value={picks[t.id]?.cat ?? null} onChange={(cat) => pickFor(t, { cat })} />
+                </View>
+              ) : null}
               <ThemedText type="small" themeColor="textSecondary">
                 Type
               </ThemedText>
