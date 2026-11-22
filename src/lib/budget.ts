@@ -154,10 +154,19 @@ export type BreakdownLine = {
  * Lines for one month grouped by category or type, for the pie charts.
  * Keys are the category id ('none' for uncategorised) or the item type. Groups are sorted by total, largest first.
  */
+/** Subscriptions (debited automatically) live in their own list, outside the pie charts and the Sankey. */
+export const isSubscription = (x: { payment?: Payment }) => x.payment === 'auto';
+
+/** Total of this month's subscriptions: what was charged (actual) or planned in Budget (forecast). */
+export function subscriptionsTotal(state: BudgetState, month: Month, side: BreakdownSide) {
+  const list = side === 'actual' ? transactionsIn(state.transactions, month) : state.items.filter((i) => itemAppliesTo(i, month));
+  return round2(list.filter(isSubscription).reduce((s, x) => s + x.amount, 0));
+}
+
 export function breakdown(state: BudgetState, month: Month, dim: BreakdownDim, side: BreakdownSide) {
   const lines: BreakdownLine[] =
     side === 'actual'
-      ? transactionsIn(state.transactions, month).map((t) => ({
+      ? transactionsIn(state.transactions, month).filter((t) => !isSubscription(t)).map((t) => ({
           id: t.id,
           label: t.note ? `${t.note} · ${t.description}` : t.description,
           date: t.date,
@@ -168,7 +177,7 @@ export function breakdown(state: BudgetState, month: Month, dim: BreakdownDim, s
           type: t.type,
         }))
       : state.items
-          .filter((i) => itemAppliesTo(i, month))
+          .filter((i) => itemAppliesTo(i, month) && !isSubscription(i))
           .map((i) => ({
             id: i.id,
             label: i.name,
@@ -199,7 +208,7 @@ export function breakdown(state: BudgetState, month: Month, dim: BreakdownDim, s
 /** Key of the income node that groups the smaller sources. */
 export const OTHER_INCOME = '__other';
 
-export type FlowNodeKind = 'income' | 'gap' | 'total' | 'category' | 'leftover' | 'type';
+export type FlowNodeKind = 'income' | 'gap' | 'total' | 'category' | 'subscriptions' | 'leftover' | 'type';
 export type FlowNode = { id: string; kind: FlowNodeKind; key: string; column: 0 | 1 | 2 | 3; value: number };
 export type FlowLink = { source: string; target: string; value: number };
 
@@ -228,7 +237,10 @@ export function moneyFlow(state: BudgetState, month: Month, maxSources = 5) {
 
   const cat = new Map<string, number>();
   const catType = new Map<string, Map<ItemType, number>>();
+  // Subscriptions are one block of their own, not split into categories and types.
+  const subs = Math.max(0, subscriptionsTotal(state, month, 'actual'));
   for (const t of transactionsIn(state.transactions, month)) {
+    if (isSubscription(t)) continue;
     const c = t.categoryId ?? 'none';
     cat.set(c, (cat.get(c) ?? 0) + t.amount);
     const m = catType.get(c) ?? new Map<ItemType, number>();
@@ -238,7 +250,7 @@ export function moneyFlow(state: BudgetState, month: Month, maxSources = 5) {
   const cats = [...cat.entries()].filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
 
   const income = round2(sources.reduce((s, x) => s + x.value, 0));
-  const spent = round2(cats.reduce((s, [, v]) => s + v, 0));
+  const spent = round2(cats.reduce((s, [, v]) => s + v, 0) + subs);
   const total = Math.max(income, spent);
   if (total <= 0) return { nodes, links, income, spent };
 
@@ -264,6 +276,10 @@ export function moneyFlow(state: BudgetState, month: Month, maxSources = 5) {
       links.push({ source: `cat:${c}`, target: `type:${type}`, value: share });
       typeTotals.set(type, (typeTotals.get(type) ?? 0) + share);
     }
+  }
+  if (subs > 0) {
+    nodes.push({ id: 'subscriptions', kind: 'subscriptions', key: 'subscriptions', column: 2, value: subs });
+    links.push({ source: 'total', target: 'subscriptions', value: subs });
   }
   if (income > spent) {
     nodes.push({ id: 'leftover', kind: 'leftover', key: 'leftover', column: 2, value: round2(income - spent) });
@@ -376,7 +392,7 @@ export function billsFor(state: BudgetState, month: Month, today = new Date()): 
 
 /**
  * A calendar file with one monthly all-day event per "Pay myself" bill, each with an alert at
- * 9:00 the day before. Days after the 28th repeat on the month's last day so short months aren't skipped.
+ * 9:00 on the due day. Days after the 28th repeat on the month's last day so short months aren't skipped.
  */
 export function billsCalendar(items: BudgetItem[], currency: string, today = new Date()): string {
   const pad = (n: number) => String(n).padStart(2, '0');
@@ -402,8 +418,9 @@ export function billsCalendar(items: BudgetItem[], currency: string, today = new
         `SUMMARY:${esc(`Pay ${i.name} (${i.type === 'recurring-variable' ? 'about ' : ''}${formatMoney(i.amount, currency, true)})`)}`,
         'BEGIN:VALARM',
         'ACTION:DISPLAY',
-        `DESCRIPTION:${esc(`${i.name} is due tomorrow`)}`,
-        'TRIGGER:-PT15H',
+        `DESCRIPTION:${esc(`${i.name} is due today`)}`,
+        // 9:00 on the due day itself (the app's push reminder comes the day before).
+        'TRIGGER:PT9H',
         'END:VALARM',
         'END:VEVENT',
       ].join('\r\n');

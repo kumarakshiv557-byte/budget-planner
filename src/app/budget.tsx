@@ -61,6 +61,9 @@ export default function BudgetScreen() {
     amount > 0 &&
     /^\d{4}-\d{2}$/.test(draft.startMonth) &&
     (draft.endMonth === '' || /^\d{4}-\d{2}$/.test(draft.endMonth)) &&
+    // Recurring lines must say how they're paid; "Pay myself" needs its due day for reminders.
+    (!isRecurring(draft.type) || !!draft.payment) &&
+    (draft.payment !== 'manual' || !isRecurring(draft.type) || draft.dueDay !== '') &&
     dueValid;
 
   const save = () => {
@@ -121,12 +124,12 @@ export default function BudgetScreen() {
               <Label>How is it paid?</Label>
               <Chips options={PAYMENTS} value={draft.payment ?? null} onChange={(payment) => setDraft({ ...draft, payment })} />
               <ThemedText type="small" themeColor="textSecondary">
-                {draft.payment ? PAYMENTS.find((p) => p.id === draft.payment)?.hint : 'Optional. Tag subscriptions and bills you pay yourself.'}
+                {draft.payment ? PAYMENTS.find((p) => p.id === draft.payment)?.hint : 'Pick one: subscriptions get their own list; bills you pay yourself get reminders.'}
               </ThemedText>
               {draft.payment === 'manual' ? (
                 <View style={styles.row}>
                   <Field
-                    label="Due day of the month (1-31)"
+                    label="Due on day of the month (1-31)"
                     value={draft.dueDay}
                     onChangeText={(v) => setDraft({ ...draft, dueDay: v.replace(/[^0-9]/g, '') })}
                     keyboardType="number-pad"

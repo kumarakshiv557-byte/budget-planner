@@ -7,7 +7,7 @@ import { ThemedText } from '@/components/themed-text';
 import { Card, Chips, styles as ui, useCategoryColor, useCategoryLabel, useIsDark, useMoney } from '@/components/ui';
 import { MaxContentWidth, Spacing, TypeColors } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { breakdown, monthLabel, paymentNote, type BreakdownDim, type BreakdownLine, type BreakdownSide } from '@/lib/budget';
+import { breakdown, monthLabel, paymentNote, type BreakdownDim, type BreakdownLine, type BreakdownSide, subscriptionsTotal } from '@/lib/budget';
 import { useBudget } from '@/lib/store';
 import { ITEM_TYPES, PAYMENTS, isRecurring, type ItemType, type Month } from '@/lib/types';
 
@@ -43,6 +43,7 @@ export function BreakdownSheet({
   const [selected, setSelected] = useState<string | null>(initialKey ?? null);
 
   const groups = dim ? breakdown(state, month, dim, side) : [];
+  const subsTotal = subscriptionsTotal(state, month, side);
   const catName = (id: string | null) => state.categories.find((c) => c.id === id)?.name ?? 'Uncategorised';
   const labelOf = (key: string) => (dim === 'type' ? TYPE_LABEL[key as ItemType] : catName(key === 'none' ? null : key));
   const colorOf = (key: string) =>
@@ -107,7 +108,11 @@ export function BreakdownSheet({
                 }}
               />
 
-              <Card subtitle={side === 'actual' ? 'What you actually spent. Tap a slice to see its expenses.' : 'What you planned. Tap a slice to see its budget lines.'}>
+              <Card
+                subtitle={
+                  (side === 'actual' ? 'What you actually spent. Tap a slice to see its expenses.' : 'What you planned. Tap a slice to see its budget lines.') +
+                  (subsTotal > 0 ? ` Subscriptions (${money(subsTotal, true)}) aren't in this chart; they have their own list on Overview.` : '')
+                }>
                 <Donut
                   slices={groups.map((g) => ({ key: g.key, label: labelOf(g.key), value: g.total, color: colorOf(g.key) }))}
                   selected={selected}

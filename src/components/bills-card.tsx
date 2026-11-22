@@ -5,6 +5,7 @@ import { Button, Card, useCategoryColor, useMoney } from '@/components/ui';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { billsCalendar, billsFor, currentMonth } from '@/lib/budget';
+import { downloadCalendar } from '@/lib/calendar-file';
 import { useBudget } from '@/lib/store';
 import type { Month } from '@/lib/types';
 
@@ -26,15 +27,7 @@ export function BillsCard({ month }: { month: Month }) {
   const isNow = month === currentMonth();
   const left = bills.filter((b) => !b.paid);
 
-  const addToCalendar = () => {
-    if (Platform.OS !== 'web' || typeof document === 'undefined') return;
-    const blob = new Blob([billsCalendar(state.items, state.currency)], { type: 'text/calendar' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = 'bill-reminders.ics';
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
-  };
+  const addToCalendar = () => downloadCalendar(billsCalendar(state.items, state.currency), 'bill-reminders.ics');
 
   return (
     <Card
@@ -78,7 +71,7 @@ export function BillsCard({ month }: { month: Month }) {
         <View style={{ marginTop: Spacing.two, gap: Spacing.one }}>
           <Button label="Add reminders to my calendar" kind="secondary" onPress={addToCalendar} />
           <ThemedText type="small" themeColor="textSecondary">
-            Downloads a calendar file with a monthly reminder the day before each bill. Open it to add the reminders to your phone
+            Downloads a calendar file with a monthly reminder at 9:00 on the day each bill is due. Open it to add the reminders to your phone
             calendar. Do it again after you add or change a bill.
           </ThemedText>
         </View>
