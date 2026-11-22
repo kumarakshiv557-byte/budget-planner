@@ -24,6 +24,9 @@ export type Category = {
   colorDark: string;
 };
 
+/** A finer bucket inside a category, e.g. Frivolous → "Eating out / food delivery". */
+export type Subcategory = { id: string; categoryId: string; name: string };
+
 /** A month as "YYYY-MM". */
 export type Month = string;
 
@@ -32,6 +35,7 @@ export type BudgetItem = {
   id: string;
   name: string;
   categoryId: string;
+  subcategoryId?: string;
   type: ItemType;
   /** Positive amount in the account currency. For recurring items this is per month. */
   amount: number;
@@ -50,6 +54,7 @@ export type Transaction = {
   description: string;
   amount: number;
   categoryId: string | null;
+  subcategoryId?: string;
   type: ItemType;
   source: TransactionSource;
   /** Bank/CSV reference used to skip duplicates on re-import. */
@@ -70,12 +75,13 @@ export type Income = {
  * "Anything matching this text goes to this category" (and, if set, gets this type).
  * Learned when the user recategorises or retypes a transaction. Types belong to each line, not to a category.
  */
-export type CategoryRule = { match: string; categoryId: string; type?: ItemType };
+export type CategoryRule = { match: string; categoryId: string; subcategoryId?: string; type?: ItemType };
 
 export type BudgetState = {
   version: 1;
   currency: string;
   categories: Category[];
+  subcategories: Subcategory[];
   items: BudgetItem[];
   transactions: Transaction[];
   rules: CategoryRule[];

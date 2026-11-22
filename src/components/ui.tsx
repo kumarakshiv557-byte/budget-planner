@@ -127,6 +127,51 @@ export function Chips<T extends string>({
   );
 }
 
+/** "Frivolous › Eating out / food delivery", or just the category name. */
+export function useCategoryLabel() {
+  const { state } = useBudget();
+  return (categoryId: string | null, subcategoryId?: string) => {
+    const c = state.categories.find((x) => x.id === categoryId)?.name ?? 'Uncategorised';
+    const sub = subcategoryId ? state.subcategories.find((x) => x.id === subcategoryId)?.name : undefined;
+    return sub ? `${c} › ${sub}` : c;
+  };
+}
+
+/** Category chips, then (if the chosen category has any) its subcategories. */
+export function CategoryPicker({
+  categoryId,
+  subcategoryId,
+  onChange,
+}: {
+  categoryId: string | null;
+  subcategoryId?: string;
+  onChange: (categoryId: string, subcategoryId?: string) => void;
+}) {
+  const { state } = useBudget();
+  const colorFor = useCategoryColor();
+  const subs = state.subcategories.filter((x) => x.categoryId === categoryId);
+  return (
+    <View style={{ gap: Spacing.two }}>
+      <Chips
+        options={state.categories.map((c) => ({ id: c.id, label: c.name }))}
+        value={categoryId}
+        swatch={(id) => colorFor(state.categories.find((c) => c.id === id))}
+        onChange={(id) => onChange(id, undefined)}
+      />
+      {categoryId && subs.length ? (
+        <>
+          <Label>Subcategory</Label>
+          <Chips
+            options={[{ id: '', label: 'None' }, ...subs.map((x) => ({ id: x.id, label: x.name }))]}
+            value={subcategoryId ?? ''}
+            onChange={(id) => onChange(categoryId, id || undefined)}
+          />
+        </>
+      ) : null}
+    </View>
+  );
+}
+
 export function Field({ label, ...props }: TextInputProps & { label: string }) {
   const theme = useTheme();
   return (
