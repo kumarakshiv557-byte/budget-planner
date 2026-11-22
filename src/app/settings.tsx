@@ -6,6 +6,7 @@ import { Button, Card, Chips, Field, Screen, styles, useCategoryColor } from '@/
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { useBudget } from '@/lib/store';
+import { useRevolutSync } from '@/lib/use-revolut-sync';
 import { ITEM_TYPES } from '@/lib/types';
 
 const CURRENCIES = ['EUR', 'INR', 'GBP', 'USD'].map((c) => ({ id: c, label: c }));
@@ -34,12 +35,7 @@ export default function SettingsScreen() {
         ))}
       </Card>
 
-      <Card title="Revolut sync" subtitle="Coming next">
-        <ThemedText type="small" themeColor="textSecondary">
-          Automatic sync with your Portuguese Revolut account will use Enable Banking, an EU open-banking provider. Until then,
-          import a CSV statement on the Spending tab.
-        </ThemedText>
-      </Card>
+      <RevolutSyncCard />
 
       <Card title="Data" subtitle="Everything is stored on this device only.">
         <View style={styles.row}>
@@ -61,5 +57,60 @@ export default function SettingsScreen() {
         </View>
       </Card>
     </Screen>
+  );
+}
+
+function RevolutSyncCard() {
+  const theme = useTheme();
+  const { config, setConfig, configured, status, busy, message, refreshStatus, connect, syncNow, lastSyncedAt } = useRevolutSync();
+  const fmt = (iso: string) => new Date(iso).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' });
+  const daysLeft = status?.validUntil ? Math.ceil((new Date(status.validUntil).getTime() - Date.now()) / 86400_000) : null;
+
+  return (
+    <Card title="Revolut sync" subtitle="Pulls your Revolut spending automatically through Enable Banking (EU open banking).">
+      <View style={[styles.row, { marginTop: Spacing.two }]}>
+        <Field
+          label="Sync server URL"
+          value={config.url}
+          onChangeText={(url) => setConfig({ ...config, url: url.trim() })}
+          autoCapitalize="none"
+          autoCorrect={false}
+          placeholder="https://….supabase.co/functions/v1/revolut-sync"
+        />
+        <Field
+          label="Sync passphrase"
+          value={config.secret}
+          onChangeText={(secret) => setConfig({ ...config, secret })}
+          autoCapitalize="none"
+          autoCorrect={false}
+          secureTextEntry
+          placeholder="the SYNC_SECRET you set in Supabase"
+        />
+      </View>
+      <View style={[styles.row, { marginTop: Spacing.three }]}>
+        <Button label={busy === 'connect' ? 'Opening…' : 'Connect Revolut'} onPress={connect} disabled={!configured || !!busy} />
+        <Button label={busy === 'status' ? 'Checking…' : 'Check connection'} kind="secondary" onPress={refreshStatus} disabled={!configured || !!busy} />
+        <Button label={busy === 'sync' ? 'Syncing…' : 'Sync now'} kind="secondary" onPress={syncNow} disabled={!configured || !!busy} />
+      </View>
+      {status ? (
+        <ThemedText type="small" style={{ marginTop: Spacing.two, color: status.connected ? theme.text : theme.critical }}>
+          {status.connected
+            ? `✓ Connected${status.accounts?.length ? ` (${status.accounts.map((a) => a.currency ?? a.name).join(', ')})` : ''}. ` +
+              (daysLeft != null ? `Revolut access lasts ${daysLeft} more day${daysLeft === 1 ? '' : 's'}, then press Connect again.` : '')
+            : '⚠ Not connected. Press "Connect Revolut".'}
+        </ThemedText>
+      ) : null}
+      {lastSyncedAt ? (
+        <ThemedText type="small" themeColor="textSecondary">
+          Last synced {fmt(lastSyncedAt)}. The app syncs by itself when opened if it has been 6 hours.
+        </ThemedText>
+      ) : null}
+      {message ? (
+        <ThemedText type="small" style={{ color: message.error ? theme.critical : theme.textSecondary }}>
+          {message.error ? '⚠ ' : '✓ '}
+          {message.text}
+        </ThemedText>
+      ) : null}
+    </Card>
   );
 }

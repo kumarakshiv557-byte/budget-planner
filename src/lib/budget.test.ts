@@ -98,3 +98,23 @@ test('Revolut CSV: re-importing the same file adds nothing', () => {
 test('Revolut CSV: rejects files without the expected columns', () => {
   assert.throws(() => parseRevolutCsv('foo,bar\n1,2', initialState(), id), /Revolut statement/);
 });
+
+test('synced rows: categorised, typed and de-duplicated', async () => {
+  const { mergeSynced, nextDateFrom } = await import('./sync.ts');
+  const s = initialState();
+  const rows = [
+    { externalId: 'eb:a:1', date: '2026-11-02', description: 'Netflix.com', amount: 12.99, currency: 'EUR' },
+    { externalId: 'eb:a:2', date: '2026-11-03', description: 'Some shop', amount: 20, currency: 'EUR' },
+    { externalId: 'eb:a:1', date: '2026-11-02', description: 'Netflix.com', amount: 12.99, currency: 'EUR' },
+  ];
+  const first = mergeSynced(s, rows, id);
+  assert.deepEqual(first.map((t) => [t.externalId, t.categoryId, t.type, t.source]), [
+    ['eb:a:1', 'subscriptions', 'recurring-fixed', 'revolut'],
+    ['eb:a:2', null, 'variable-one-time', 'revolut'],
+  ]);
+  s.transactions = first;
+  assert.equal(mergeSynced(s, rows, id).length, 0);
+  assert.equal(nextDateFrom(undefined), undefined);
+  assert.equal(nextDateFrom('2026-11-20T10:00:00Z', new Date('2026-11-22T00:00:00Z')), '2026-11-15');
+  assert.equal(nextDateFrom('2026-01-01T00:00:00Z', new Date('2026-11-22T00:00:00Z')), '2026-08-25');
+});

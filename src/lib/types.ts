@@ -68,4 +68,6 @@ export type BudgetState = {
   items: BudgetItem[];
   transactions: Transaction[];
   rules: CategoryRule[];
+  /** When Revolut sync last succeeded (ISO time). */
+  lastSyncedAt?: string;
 };
