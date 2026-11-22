@@ -1,4 +1,4 @@
-import { categorize, typeFor } from './budget.ts';
+import { matchRule, typeFor } from './budget.ts';
 import type { BudgetState, Income, Transaction } from './types.ts';
 import type { SyncedTransaction } from '../../supabase/functions/revolut-sync/eb-normalize.ts';
 
@@ -11,13 +11,15 @@ export function mergeSynced(state: BudgetState, rows: SyncedTransaction[], idFor
   for (const r of rows) {
     if (seen.has(r.externalId)) continue;
     seen.add(r.externalId);
-    const categoryId = categorize(r.description, state.rules);
+    const rule = matchRule(r.description, state.rules);
+    const categoryId = rule?.categoryId ?? null;
     out.push({
       id: idFor(),
       date: r.date,
       description: r.description,
       amount: r.amount,
       categoryId,
+      ...(rule?.subcategoryId ? { subcategoryId: rule.subcategoryId } : {}),
       type: typeFor(r.description, state.rules),
       source: 'revolut',
       externalId: r.externalId,

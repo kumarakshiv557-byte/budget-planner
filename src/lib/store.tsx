@@ -1,9 +1,9 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
-import { newId } from './budget.ts';
-import { initialState } from './defaults.ts';
-import type { BudgetItem, BudgetState, Category, CategoryRule, Income, Transaction } from './types.ts';
+import { newId, recategorizeIn, ruleFrom } from './budget.ts';
+import { initialState, migrate } from './defaults.ts';
+import type { BudgetItem, BudgetState, Category, Income, Transaction } from './types.ts';
 
 const KEY = 'budget-planner/state/v1';
 
@@ -19,8 +19,11 @@ type Actions = {
   saveIncome: (i: Omit<Income, 'id'> & { id?: string }) => void;
   deleteIncome: (id: string) => void;
   addIncome: (list: Income[]) => void;
-  /** Recategorise a transaction and remember the choice for future imports. */
-  recategorize: (id: string, categoryId: string, learn: boolean) => void;
+  /** Recategorise a transaction; with `learn`, remember the merchant and sort its other unsorted transactions too. */
+  recategorize: (id: string, categoryId: string, learn: boolean, subcategoryId?: string) => void;
+  addSubcategory: (categoryId: string, name: string) => void;
+  renameSubcategory: (id: string, name: string) => void;
+  deleteSubcategory: (id: string) => void;
   updateCategory: (id: string, patch: Partial<Pick<Category, 'name'>>) => void;
   setCurrency: (currency: string) => void;
   resetAll: () => void;
@@ -30,18 +33,6 @@ type Ctx = { state: BudgetState; ready: boolean } & Actions;
 
 const BudgetContext = createContext<Ctx | null>(null);
 
-/** The words of a bank description that make a reusable rule ("PINGO DOCE LISBOA 123" → "pingo doce lisboa"). */
-function ruleFrom(description: string) {
-  return description
-    .toLowerCase()
-    .replace(/[0-9*#]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .split(' ')
-    .slice(0, 3)
-    .join(' ');
-}
-
 export function BudgetProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<BudgetState>(initialState);
   const [ready, setReady] = useState(false);
@@ -50,7 +41,7 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     AsyncStorage.getItem(KEY)
       .then((raw) => {
-        if (raw) setState({ ...initialState(), ...JSON.parse(raw) });
+        if (raw) setState(migrate(JSON.parse(raw)));
       })
       .catch(() => {})
       .finally(() => {
@@ -110,21 +101,24 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
         }),
       deleteIncome: (id) => update((s) => ({ ...s, income: s.income.filter((x) => x.id !== id) })),
       addIncome: (list) => update((s) => ({ ...s, income: [...s.income, ...list] })),
-      recategorize: (id, categoryId, learn) =>
+      recategorize: (id, categoryId, learn, subcategoryId) => update((s) => recategorizeIn(s, id, categoryId, subcategoryId, learn)),
+      addSubcategory: (categoryId, name) =>
+        update((s) => ({ ...s, subcategories: [...s.subcategories, { id: newId(), categoryId, name: name.trim() }] })),
+      renameSubcategory: (id, name) =>
+        update((s) => ({ ...s, subcategories: s.subcategories.map((c) => (c.id === id ? { ...c, name } : c)) })),
+      deleteSubcategory: (id) =>
         update((s) => {
-          const t = s.transactions.find((x) => x.id === id);
-          if (!t) return s;
-          const rules: CategoryRule[] = [...s.rules];
-          const match = ruleFrom(t.description);
-          if (learn && match) {
-            const i = rules.findIndex((r) => r.match === match);
-            if (i >= 0) rules[i] = { ...rules[i], categoryId };
-            else rules.push({ match, categoryId });
-          }
+          const drop = <T extends { subcategoryId?: string }>(x: T): T => {
+            if (x.subcategoryId !== id) return x;
+            const { subcategoryId: _gone, ...rest } = x;
+            return rest as T;
+          };
           return {
             ...s,
-            rules,
-            transactions: s.transactions.map((x) => (x.id === id ? { ...x, categoryId } : x)),
+            subcategories: s.subcategories.filter((c) => c.id !== id),
+            transactions: s.transactions.map(drop),
+            items: s.items.map(drop),
+            rules: s.rules.map(drop),
           };
         }),
       updateCategory: (id, patch) =>

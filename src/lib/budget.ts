@@ -1,4 +1,4 @@
-import { isRecurring, type BudgetItem, type BudgetState, type ItemType, type Month } from './types.ts';
+import { isRecurring, type BudgetItem, type BudgetState, type ItemType, type Month, type Transaction } from './types.ts';
 
 export function monthOf(date: string): Month {
   return date.slice(0, 7);
@@ -133,7 +133,7 @@ export function newId() {
 export type BreakdownDim = 'category' | 'type';
 export type BreakdownSide = 'actual' | 'forecast';
 /** One expense (actual) or budget line (forecast) inside a pie slice. */
-export type BreakdownLine = { id: string; label: string; date?: string; amount: number; categoryId: string | null; type: ItemType };
+export type BreakdownLine = { id: string; label: string; date?: string; amount: number; categoryId: string | null; subcategoryId?: string; type: ItemType };
 
 /**
  * Lines for one month grouped by category or type, for the pie charts.
@@ -148,11 +148,12 @@ export function breakdown(state: BudgetState, month: Month, dim: BreakdownDim, s
           date: t.date,
           amount: t.amount,
           categoryId: t.categoryId,
+          subcategoryId: t.subcategoryId,
           type: t.type,
         }))
       : state.items
           .filter((i) => itemAppliesTo(i, month))
-          .map((i) => ({ id: i.id, label: i.name, amount: i.amount, categoryId: i.categoryId, type: i.type }));
+          .map((i) => ({ id: i.id, label: i.name, amount: i.amount, categoryId: i.categoryId, subcategoryId: i.subcategoryId, type: i.type }));
   const groups = new Map<string, { key: string; total: number; lines: BreakdownLine[] }>();
   for (const l of lines) {
     const key = dim === 'category' ? (l.categoryId ?? 'none') : l.type;
@@ -247,4 +248,55 @@ export function moneyFlow(state: BudgetState, month: Month, maxSources = 5) {
     nodes.push({ id: `type:${type}`, kind: 'type', key: type, column: 3, value: round2(v) });
   }
   return { nodes, links, income, spent };
+}
+
+/**
+ * The reusable part of a bank description, used when the app learns a rule.
+ * Payment-processor prefixes are dropped ("Raz*zomato Online Order" and "Pyu*zomato Limited" both
+ * give "zomato"); then the first word is kept if it is distinctive (5+ letters), otherwise the first two.
+ */
+export function ruleFrom(description: string) {
+  const lower = description.toLowerCase();
+  const afterPrefix = lower.includes('*') ? lower.slice(lower.lastIndexOf('*') + 1) : lower;
+  const words = afterPrefix
+    .replace(/[0-9#]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .split(' ')
+    .filter(Boolean);
+  if (!words.length) return '';
+  return words[0].length >= 5 ? words[0] : words.slice(0, 2).join(' ');
+}
+
+/**
+ * Put a transaction in a category (and optionally a subcategory). With `learn`, remember the merchant
+ * as a rule and sort every other still-unsorted transaction from the same merchant the same way.
+ */
+export function recategorizeIn(
+  s: BudgetState,
+  id: string,
+  categoryId: string,
+  subcategoryId: string | undefined,
+  learn: boolean,
+): BudgetState {
+  const t = s.transactions.find((x) => x.id === id);
+  if (!t) return s;
+  const match = learn ? ruleFrom(t.description) : '';
+  let rules = s.rules;
+  if (match) {
+    const rule = { match, categoryId, ...(subcategoryId ? { subcategoryId } : {}) };
+    const i = rules.findIndex((r) => r.match === match);
+    rules = i >= 0 ? rules.map((r, j) => (j === i ? { ...rule, ...(r.type ? { type: r.type } : {}) } : r)) : [...rules, rule];
+  }
+  const set = (x: Transaction) => {
+    const { subcategoryId: _old, ...rest } = x;
+    return { ...rest, categoryId, ...(subcategoryId ? { subcategoryId } : {}) };
+  };
+  return {
+    ...s,
+    rules,
+    transactions: s.transactions.map((x) =>
+      x.id === id || (match && !x.categoryId && ` ${x.description.toLowerCase()} `.includes(match)) ? set(x) : x,
+    ),
+  };
 }

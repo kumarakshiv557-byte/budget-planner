@@ -2,14 +2,14 @@ import { useState } from 'react';
 import { Pressable, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
-import { Button, Card, Chips, Field, Label, MonthSwitcher, Screen, styles, useCategoryColor, useMoney } from '@/components/ui';
+import { Button, CategoryPicker, Card, Chips, Field, Label, MonthSwitcher, Screen, styles, useCategoryColor, useMoney } from '@/components/ui';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { currentMonth, itemAppliesTo, monthLabel } from '@/lib/budget';
 import { useBudget } from '@/lib/store';
 import { ITEM_TYPES, isRecurring, type BudgetItem, type ItemType } from '@/lib/types';
 
-type Draft = { id?: string; name: string; categoryId: string; type: ItemType | null; amount: string; startMonth: string; endMonth: string };
+type Draft = { id?: string; name: string; categoryId: string; subcategoryId?: string; type: ItemType | null; amount: string; startMonth: string; endMonth: string };
 
 const TYPE_LABEL = Object.fromEntries(ITEM_TYPES.map((t) => [t.id, t.label]));
 
@@ -49,6 +49,7 @@ export default function BudgetScreen() {
       id: draft.id,
       name: draft.name.trim(),
       categoryId: draft.categoryId,
+      subcategoryId: draft.subcategoryId,
       type: draft.type,
       amount,
       startMonth: draft.startMonth,
@@ -80,11 +81,10 @@ export default function BudgetScreen() {
             />
           </View>
           <Label>Category</Label>
-          <Chips
-            options={state.categories.map((c) => ({ id: c.id, label: c.name }))}
-            value={draft.categoryId}
-            swatch={(id) => colorFor(state.categories.find((c) => c.id === id))}
-            onChange={(categoryId) => setDraft({ ...draft, categoryId })}
+          <CategoryPicker
+            categoryId={draft.categoryId}
+            subcategoryId={draft.subcategoryId}
+            onChange={(categoryId, subcategoryId) => setDraft({ ...draft, categoryId, subcategoryId })}
           />
           <Label>Type</Label>
           <Chips options={ITEM_TYPES} value={draft.type} onChange={(type) => setDraft({ ...draft, type })} />
@@ -151,6 +151,7 @@ export default function BudgetScreen() {
                   <View style={{ flex: 1 }}>
                     <ThemedText type="small">{i.name}</ThemedText>
                     <ThemedText type="small" themeColor="textSecondary">
+                      {i.subcategoryId ? `${state.subcategories.find((x) => x.id === i.subcategoryId)?.name ?? ''} · ` : ''}
                       {TYPE_LABEL[i.type]}
                       {i.endMonth ? ` · until ${monthLabel(i.endMonth, 'short')}` : ''}
                     </ThemedText>

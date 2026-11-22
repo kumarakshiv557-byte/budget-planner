@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Pressable, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
-import { Button, Card, Chips, Field, Label, MonthSwitcher, Screen, styles, useCategoryColor, useMoney } from '@/components/ui';
+import { Button, CategoryPicker, Card, Chips, Field, Label, MonthSwitcher, Screen, styles, useCategoryColor, useCategoryLabel, useMoney } from '@/components/ui';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { currentMonth, monthLabel, newId, transactionsIn } from '@/lib/budget';
@@ -11,7 +11,7 @@ import { pickCsvText } from '@/lib/pick-file';
 import { useBudget } from '@/lib/store';
 import { ITEM_TYPES, type ItemType, type Transaction } from '@/lib/types';
 
-type Draft = { id?: string; date: string; description: string; amount: string; categoryId: string | null; type: ItemType };
+type Draft = { id?: string; date: string; description: string; amount: string; categoryId: string | null; subcategoryId?: string; type: ItemType };
 
 type IncomeDraft = { id?: string; date: string; description: string; amount: string };
 
@@ -23,6 +23,7 @@ export default function SpendingScreen() {
   const [incomeDraft, setIncomeDraft] = useState<IncomeDraft | null>(null);
   const money = useMoney();
   const colorFor = useCategoryColor();
+  const catLabel = useCategoryLabel();
   const theme = useTheme();
   const [month, setMonth] = useState(currentMonth());
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -80,6 +81,7 @@ export default function SpendingScreen() {
       description: draft.description.trim(),
       amount,
       categoryId: draft.categoryId,
+      subcategoryId: draft.categoryId ? draft.subcategoryId : undefined,
       type: draft.type,
       source: draft.id ? (state.transactions.find((t) => t.id === draft.id)?.source ?? 'manual') : 'manual',
       externalId: draft.id ? state.transactions.find((t) => t.id === draft.id)?.externalId : undefined,
@@ -88,8 +90,21 @@ export default function SpendingScreen() {
   };
 
   const edit = (t: Transaction) => setDraft({ ...t, amount: String(t.amount) });
-  const catOptions = state.categories.map((c) => ({ id: c.id, label: c.name }));
-  const swatch = (id: string) => colorFor(state.categories.find((c) => c.id === id));
+  // For quick sorting: every category, each followed by its subcategories ("s:" ids).
+  const sortOptions = state.categories.flatMap((c) => [
+    { id: `c:${c.id}`, label: c.name },
+    ...state.subcategories.filter((x) => x.categoryId === c.id).map((x) => ({ id: `s:${x.id}`, label: `${c.name} › ${x.name}` })),
+  ]);
+  const sortSwatch = (id: string) => {
+    const catId = id.startsWith('s:') ? state.subcategories.find((x) => x.id === id.slice(2))?.categoryId : id.slice(2);
+    return colorFor(state.categories.find((c) => c.id === catId));
+  };
+  const sortInto = (tId: string, id: string) => {
+    if (id.startsWith('s:')) {
+      const sc = state.subcategories.find((x) => x.id === id.slice(2));
+      if (sc) recategorize(tId, sc.categoryId, learn, sc.id);
+    } else recategorize(tId, id.slice(2), learn);
+  };
 
   return (
     <Screen title="Spending" right={<MonthSwitcher month={month} onChange={setMonth} />}>
@@ -127,11 +142,10 @@ export default function SpendingScreen() {
             <Field label="Date (YYYY-MM-DD)" value={draft.date} onChangeText={(date) => setDraft({ ...draft, date })} />
           </View>
           <Label>Category</Label>
-          <Chips
-            options={catOptions}
-            value={draft.categoryId}
-            swatch={swatch}
-            onChange={(categoryId) => setDraft({ ...draft, categoryId })}
+          <CategoryPicker
+            categoryId={draft.categoryId}
+            subcategoryId={draft.subcategoryId}
+            onChange={(categoryId, subcategoryId) => setDraft({ ...draft, categoryId, subcategoryId })}
           />
           <Label>Type</Label>
           <Chips options={ITEM_TYPES} value={draft.type} onChange={(type) => setDraft({ ...draft, type })} />
@@ -155,7 +169,7 @@ export default function SpendingScreen() {
       {uncategorised.length ? (
         <Card
           title={`${uncategorised.length} to sort`}
-          subtitle="Pick a category for each. With 'remember' on, future imports from the same place are sorted automatically.">
+          subtitle="Pick a category for each. With 'remember' on, the other payments from the same place are sorted too, and so are future ones.">
           <Pressable onPress={() => setLearn(!learn)} accessibilityRole="checkbox" accessibilityState={{ checked: learn }}>
             <ThemedText type="small">{learn ? '☑' : '☐'} Remember my choices</ThemedText>
           </Pressable>
@@ -167,7 +181,7 @@ export default function SpendingScreen() {
                 </ThemedText>
                 <ThemedText type="smallBold">{money(t.amount)}</ThemedText>
               </View>
-              <Chips options={catOptions} value={null} swatch={swatch} onChange={(id) => recategorize(t.id, id, learn)} />
+              <Chips options={sortOptions} value={null} swatch={sortSwatch} onChange={(id) => sortInto(t.id, id)} />
             </View>
           ))}
         </Card>
@@ -245,7 +259,7 @@ export default function SpendingScreen() {
                 <View style={{ flex: 1 }}>
                   <ThemedText type="small">{t.description}</ThemedText>
                   <ThemedText type="small" themeColor="textSecondary">
-                    {t.date} · {c?.name ?? 'Uncategorised'} · {TYPE_LABEL[t.type]}
+                    {t.date} · {catLabel(t.categoryId, t.subcategoryId)} · {TYPE_LABEL[t.type]}
                     {t.source === 'csv' ? ' · imported' : t.source === 'revolut' ? ' · synced' : ''}
                   </ThemedText>
                 </View>

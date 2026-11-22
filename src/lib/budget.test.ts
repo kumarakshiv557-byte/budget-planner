@@ -2,8 +2,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { addMonths, breakdown, moneyFlow, categorize, typeFor, summarizeMonth, trend } from './budget.ts';
-import { initialState } from './defaults.ts';
+import { addMonths, breakdown, recategorizeIn, ruleFrom, moneyFlow, categorize, typeFor, summarizeMonth, trend } from './budget.ts';
+import { initialState, migrate } from './defaults.ts';
 import { parseRevolutCsv } from './revolut-csv.ts';
 import type { BudgetState } from './types.ts';
 
@@ -183,4 +183,44 @@ test('money flow: income → month → categories (+ left over) → types', () =
   const g = moneyFlow(s, '2026-11');
   assert.deepEqual(g.nodes.filter((n) => n.column === 0).map((n) => [n.id, n.value]), [['gap', 1013]]);
   assert.ok(!g.nodes.some((n) => n.id === 'leftover'));
+});
+
+test('ruleFrom drops payment-processor prefixes and keeps the distinctive word', () => {
+  assert.equal(ruleFrom('Raz*zomato Online Order'), 'zomato');
+  assert.equal(ruleFrom('Pyu*zomato Limited'), 'zomato');
+  assert.equal(ruleFrom('Paypal *itunesappst Apple'), 'itunesappst');
+  assert.equal(ruleFrom('PINGO DOCE LISBOA 123'), 'pingo');
+  assert.equal(ruleFrom('Uber trip 22'), 'uber trip');
+});
+
+test('recategorize with remember sorts the other unsorted rows from the same merchant', () => {
+  const s = initialState();
+  const tx = (id: string, description: string, categoryId: string | null = null) =>
+    ({ id, date: '2026-11-10', description, amount: 5, categoryId, type: 'variable-one-time', source: 'revolut' }) as const;
+  s.rules = [];
+  s.transactions = [tx('a', 'Raz*zomato Online Order'), tx('b', 'Pyu*zomato Limited'), tx('c', 'Zomato', 'essentials'), tx('d', 'Lidl')];
+  const out = recategorizeIn(s, 'a', 'frivolous', 'eating-out', true);
+  assert.deepEqual(
+    out.transactions.map((t) => [t.id, t.categoryId, t.subcategoryId]),
+    [['a', 'frivolous', 'eating-out'], ['b', 'frivolous', 'eating-out'], ['c', 'essentials', undefined], ['d', null, undefined]],
+  );
+  assert.deepEqual(out.rules, [{ match: 'zomato', categoryId: 'frivolous', subcategoryId: 'eating-out' }]);
+  const once = recategorizeIn(s, 'a', 'frivolous', undefined, false);
+  assert.equal(once.transactions.find((t) => t.id === 'b')!.categoryId, null);
+});
+
+test('migrate adds the eating-out subcategory to old data and sorts what its rules recognise', () => {
+  const old = initialState() as Partial<ReturnType<typeof initialState>>;
+  delete old.subcategories;
+  old.rules = [{ match: 'netflix', categoryId: 'subscriptions' }, { match: 'cafe', categoryId: 'frivolous' }];
+  old.transactions = [
+    { id: 'z', date: '2026-11-17', description: 'Raz*zomato Online Order', amount: 7, categoryId: null, type: 'variable-one-time', source: 'revolut' },
+    { id: 'n', date: '2026-11-17', description: 'Something else', amount: 7, categoryId: null, type: 'variable-one-time', source: 'revolut' },
+  ];
+  const s = migrate(old);
+  assert.deepEqual(s.subcategories.map((c) => c.name), ['Eating out / food delivery']);
+  assert.equal(s.rules.find((r) => r.match === 'cafe')!.subcategoryId, 'eating-out');
+  assert.deepEqual(s.transactions.map((t) => [t.categoryId, t.subcategoryId]), [['frivolous', 'eating-out'], [null, undefined]]);
+  // already-migrated data is left alone
+  assert.equal(migrate(s).rules.length, s.rules.length);
 });

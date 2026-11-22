@@ -4,10 +4,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Donut } from '@/components/charts';
 import { ThemedText } from '@/components/themed-text';
-import { Card, Chips, styles as ui, useCategoryColor, useIsDark, useMoney } from '@/components/ui';
+import { Card, Chips, styles as ui, useCategoryColor, useCategoryLabel, useIsDark, useMoney } from '@/components/ui';
 import { MaxContentWidth, Spacing, TypeColors } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { breakdown, monthLabel, type BreakdownDim, type BreakdownSide } from '@/lib/budget';
+import { breakdown, monthLabel, type BreakdownDim, type BreakdownLine, type BreakdownSide } from '@/lib/budget';
 import { useBudget } from '@/lib/store';
 import { ITEM_TYPES, type ItemType, type Month } from '@/lib/types';
 
@@ -37,6 +37,7 @@ export function BreakdownSheet({
   const dark = useIsDark();
   const money = useMoney();
   const colorFor = useCategoryColor();
+  const catLabel = useCategoryLabel();
   const [side, setSide] = useState<BreakdownSide>('actual');
   // The parent remounts this sheet (via `key`) for each new open, so these start fresh each time.
   const [selected, setSelected] = useState<string | null>(initialKey ?? null);
@@ -49,6 +50,19 @@ export function BreakdownSheet({
       ? TypeColors[key as ItemType][dark ? 1 : 0]
       : colorFor(state.categories.find((c) => c.id === key));
   const group = groups.find((g) => g.key === selected);
+  const subName = (id?: string) => (id ? state.subcategories.find((x) => x.id === id)?.name : undefined);
+  /** Subtotals by subcategory inside one category slice ("Other" for lines without one). */
+  const subTotals = (lines: BreakdownLine[]) => {
+    const m = new Map<string, { key: string; label: string; total: number; count: number }>();
+    for (const l of lines) {
+      const key = l.subcategoryId ?? '';
+      const g = m.get(key) ?? { key, label: subName(l.subcategoryId) ?? 'No subcategory', total: 0, count: 0 };
+      g.total += l.amount;
+      g.count++;
+      m.set(key, g);
+    }
+    return [...m.values()].sort((a, b) => b.total - a.total);
+  };
 
   return (
     <Modal visible={dim !== null} animationType="slide" onRequestClose={onClose} presentationStyle="fullScreen">
@@ -94,6 +108,16 @@ export function BreakdownSheet({
                 <Card
                   title={`${labelOf(group.key)} · ${group.lines.length} ${side === 'actual' ? (group.lines.length === 1 ? 'expense' : 'expenses') : group.lines.length === 1 ? 'budget line' : 'budget lines'}`}
                   subtitle={`Total ${money(group.total, true)}`}>
+                  {dim === 'category' && subTotals(group.lines).length > 1
+                    ? subTotals(group.lines).map((x) => (
+                        <View key={x.key} style={[s.line, { borderColor: theme.border }]}>
+                          <ThemedText type="smallBold" style={{ flex: 1 }}>
+                            {x.label} · {x.count}
+                          </ThemedText>
+                          <ThemedText type="smallBold">{money(x.total, true)}</ThemedText>
+                        </View>
+                      ))
+                    : null}
                   {group.lines.map((l) => (
                     <View key={l.id} style={[s.line, { borderColor: theme.border }]}>
                       <View style={{ flex: 1, gap: 2 }}>
@@ -101,7 +125,9 @@ export function BreakdownSheet({
                           {l.label}
                         </ThemedText>
                         <ThemedText type="small" themeColor="textSecondary">
-                          {[l.date, dim === 'type' ? catName(l.categoryId) : TYPE_LABEL[l.type]].filter(Boolean).join(' · ')}
+                          {[l.date, dim === 'type' ? catLabel(l.categoryId, l.subcategoryId) : subName(l.subcategoryId), TYPE_LABEL[l.type]]
+                            .filter(Boolean)
+                            .join(' · ')}
                         </ThemedText>
                       </View>
                       <ThemedText type="smallBold">{money(l.amount, true)}</ThemedText>

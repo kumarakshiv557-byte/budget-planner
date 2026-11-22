@@ -11,7 +11,9 @@ import { useRevolutSync } from '@/lib/use-revolut-sync';
 const CURRENCIES = ['EUR', 'INR', 'GBP', 'USD'].map((c) => ({ id: c, label: c }));
 
 export default function SettingsScreen() {
-  const { state, updateCategory, setCurrency, resetAll } = useBudget();
+  const { state, updateCategory, setCurrency, resetAll, addSubcategory, renameSubcategory, deleteSubcategory } = useBudget();
+  const [newSub, setNewSub] = useState<Record<string, string>>({});
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const colorFor = useCategoryColor();
   const theme = useTheme();
   const [confirmReset, setConfirmReset] = useState(false);
@@ -22,12 +24,53 @@ export default function SettingsScreen() {
         <Chips options={CURRENCIES} value={state.currency} onChange={setCurrency} />
       </Card>
 
-      <Card title="Categories" subtitle="Rename a category. Whether something is recurring or one-time is set on each budget line and expense, not here.">
+      <Card
+        title="Categories"
+        subtitle="Rename categories and add subcategories (like Eating out under Frivolous). Whether something is recurring or one-time is set on each line, not here.">
         {state.categories.map((c) => (
           <View key={c.id} style={{ gap: Spacing.two, paddingVertical: Spacing.three, borderTopWidth: 1, borderColor: theme.border }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.two }}>
               <View style={{ width: 12, height: 12, borderRadius: 6, backgroundColor: colorFor(c) }} />
               <Field label="Name" value={c.name} onChangeText={(name) => updateCategory(c.id, { name })} />
+            </View>
+            {state.subcategories
+              .filter((x) => x.categoryId === c.id)
+              .map((x) => {
+                const used = state.transactions.filter((t) => t.subcategoryId === x.id).length;
+                return (
+                  <View key={x.id} style={{ flexDirection: 'row', alignItems: 'flex-end', gap: Spacing.two, paddingLeft: Spacing.four }}>
+                    <Field label="Subcategory" value={x.name} onChangeText={(name) => renameSubcategory(x.id, name)} />
+                    {confirmDelete === x.id ? (
+                      <Button
+                        label={used ? `Remove (${used} move to ${c.name})` : 'Remove'}
+                        kind="danger"
+                        onPress={() => {
+                          deleteSubcategory(x.id);
+                          setConfirmDelete(null);
+                        }}
+                      />
+                    ) : (
+                      <Button label="Remove" kind="secondary" onPress={() => setConfirmDelete(x.id)} />
+                    )}
+                  </View>
+                );
+              })}
+            <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: Spacing.two, paddingLeft: Spacing.four }}>
+              <Field
+                label={`New subcategory in ${c.name}`}
+                value={newSub[c.id] ?? ''}
+                onChangeText={(v) => setNewSub({ ...newSub, [c.id]: v })}
+                placeholder="e.g. Groceries"
+              />
+              <Button
+                label="Add"
+                kind="secondary"
+                disabled={!(newSub[c.id] ?? '').trim()}
+                onPress={() => {
+                  addSubcategory(c.id, newSub[c.id] ?? '');
+                  setNewSub({ ...newSub, [c.id]: '' });
+                }}
+              />
             </View>
           </View>
         ))}
