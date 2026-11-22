@@ -12,7 +12,7 @@
       ]
     }
   },
-  "exclude": ["node_modules", "supabase/functions/revolut-sync/index.ts"],
+  "exclude": ["node_modules", "supabase/functions/revolut-sync/index.ts", "supabase/functions/bill-reminders/index.ts"],
   "include": [
     "**/*.ts",
     "**/*.tsx",
