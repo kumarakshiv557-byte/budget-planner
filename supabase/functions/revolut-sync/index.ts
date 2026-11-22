@@ -149,7 +149,7 @@ async function status() {
 
 async function sync(req: Request) {
   const s = await latestSession();
-  if (!s) return json({ error: 'Not connected, or the 90-day consent has expired. Press "Connect Revolut" again.' }, 409);
+  if (!s) return json({ error: 'Not connected, or the Revolut consent has expired. Press "Connect Revolut" again.' }, 409);
   const body = await req.json().catch(() => ({}));
   const dateFrom: string =
     typeof body.dateFrom === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.dateFrom)
