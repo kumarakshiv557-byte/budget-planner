@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { View } from 'react-native';
 
+import { BillsCard } from '@/components/bills-card';
 import { BreakdownSheet } from '@/components/breakdown-sheet';
 import { MoneyFlowCard } from '@/components/money-flow-card';
 import { PairedBars, ShareBar, StatTile, TrendChart } from '@/components/charts';
@@ -46,6 +47,8 @@ export default function OverviewScreen() {
           note={summary.forecast ? `${Math.round((summary.actual / summary.forecast) * 100)}% of forecast used` : undefined}
         />
       </View>
+
+      <BillsCard month={month} />
 
       <MoneyFlowCard month={month} />
 

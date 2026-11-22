@@ -24,6 +24,17 @@ export type Category = {
   colorDark: string;
 };
 
+/**
+ * How a fixed bill is paid. "auto" = a subscription debited from your account automatically;
+ * "manual" = a bill you have to pay yourself (and may want reminding about).
+ */
+export type Payment = 'auto' | 'manual';
+
+export const PAYMENTS: { id: Payment; label: string; hint: string }[] = [
+  { id: 'auto', label: 'Subscription', hint: 'Debited from your account automatically' },
+  { id: 'manual', label: 'Pay myself', hint: 'You pay it by hand. Add a due day for reminders.' },
+];
+
 /** A finer bucket inside a category, e.g. Frivolous → "Eating out / food delivery". */
 export type Subcategory = { id: string; categoryId: string; name: string };
 
@@ -43,6 +54,12 @@ export type BudgetItem = {
   startMonth: Month;
   /** Optional last month for recurring items (inclusive). */
   endMonth?: Month;
+  /** For recurring, fixed items: debited automatically, or paid by hand. */
+  payment?: Payment;
+  /** For "Pay myself" items: day of the month the bill is due (1-31). */
+  dueDay?: number;
+  /** Months in which a "Pay myself" bill was marked as paid. */
+  paidMonths?: Month[];
 };
 
 export type TransactionSource = 'manual' | 'csv' | 'revolut';
@@ -56,6 +73,7 @@ export type Transaction = {
   categoryId: string | null;
   subcategoryId?: string;
   type: ItemType;
+  payment?: Payment;
   source: TransactionSource;
   /** Bank/CSV reference used to skip duplicates on re-import. */
   externalId?: string;
@@ -75,7 +93,7 @@ export type Income = {
  * "Anything matching this text goes to this category" (and, if set, gets this type).
  * Learned when the user recategorises or retypes a transaction. Types belong to each line, not to a category.
  */
-export type CategoryRule = { match: string; categoryId: string; subcategoryId?: string; type?: ItemType };
+export type CategoryRule = { match: string; categoryId: string; subcategoryId?: string; type?: ItemType; payment?: Payment };
 
 export type BudgetState = {
   version: 1;

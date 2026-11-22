@@ -108,6 +108,11 @@ export function categorize(description: string, rules: BudgetState['rules']): st
   return matchRule(description, rules)?.categoryId ?? null;
 }
 
+/** Payment tag for an imported line, if its merchant rule has one. */
+export function paymentFor(description: string, rules: BudgetState['rules']) {
+  return matchRule(description, rules)?.payment;
+}
+
 /** Type for an imported line: what was learned for that merchant, else one-time variable. */
 export function typeFor(description: string, rules: BudgetState['rules']): ItemType {
   return matchRule(description, rules)?.type ?? 'variable-one-time';
@@ -133,7 +138,17 @@ export function newId() {
 export type BreakdownDim = 'category' | 'type';
 export type BreakdownSide = 'actual' | 'forecast';
 /** One expense (actual) or budget line (forecast) inside a pie slice. */
-export type BreakdownLine = { id: string; label: string; date?: string; amount: number; categoryId: string | null; subcategoryId?: string; type: ItemType };
+export type BreakdownLine = {
+  id: string;
+  label: string;
+  date?: string;
+  amount: number;
+  categoryId: string | null;
+  subcategoryId?: string;
+  type: ItemType;
+  payment?: 'auto' | 'manual';
+  dueDay?: number;
+};
 
 /**
  * Lines for one month grouped by category or type, for the pie charts.
@@ -149,11 +164,21 @@ export function breakdown(state: BudgetState, month: Month, dim: BreakdownDim, s
           amount: t.amount,
           categoryId: t.categoryId,
           subcategoryId: t.subcategoryId,
+          payment: t.payment,
           type: t.type,
         }))
       : state.items
           .filter((i) => itemAppliesTo(i, month))
-          .map((i) => ({ id: i.id, label: i.name, amount: i.amount, categoryId: i.categoryId, subcategoryId: i.subcategoryId, type: i.type }));
+          .map((i) => ({
+            id: i.id,
+            label: i.name,
+            amount: i.amount,
+            categoryId: i.categoryId,
+            subcategoryId: i.subcategoryId,
+            type: i.type,
+            payment: i.payment,
+            dueDay: i.dueDay,
+          }));
   const groups = new Map<string, { key: string; total: number; lines: BreakdownLine[] }>();
   for (const l of lines) {
     const key = dim === 'category' ? (l.categoryId ?? 'none') : l.type;
@@ -299,4 +324,69 @@ export function recategorizeIn(
       x.id === id || (match && !x.categoryId && ` ${x.description.toLowerCase()} `.includes(match)) ? set(x) : x,
     ),
   };
+}
+
+export type Bill = { item: BudgetItem; due: string; daysLeft: number; paid: boolean };
+
+/**
+ * "Pay myself" bills for a month, soonest first, with their due date (the due day, capped to the
+ * month's length) and whether they were marked paid. Items without a due day are due on the 1st.
+ */
+export function billsFor(state: BudgetState, month: Month, today = new Date()): Bill[] {
+  const [y, m] = month.split('-').map(Number);
+  const daysInMonth = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const todayUtc = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate());
+  return state.items
+    .filter((i) => i.payment === 'manual' && itemAppliesTo(i, month))
+    .map((item) => {
+      const day = Math.min(Math.max(1, item.dueDay ?? 1), daysInMonth);
+      const due = `${month}-${String(day).padStart(2, '0')}`;
+      const daysLeft = Math.round((Date.UTC(y, m - 1, day) - todayUtc) / 86400_000);
+      return { item, due, daysLeft, paid: !!item.paidMonths?.includes(month) };
+    })
+    .sort((a, b) => Number(a.paid) - Number(b.paid) || a.due.localeCompare(b.due));
+}
+
+/**
+ * A calendar file with one monthly all-day event per "Pay myself" bill, each with an alert at
+ * 9:00 the day before. Days after the 28th repeat on the month's last day so short months aren't skipped.
+ */
+export function billsCalendar(items: BudgetItem[], currency: string, today = new Date()): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const stamp = `${today.getUTCFullYear()}${pad(today.getUTCMonth() + 1)}${pad(today.getUTCDate())}T000000Z`;
+  const esc = (t: string) => t.replace(/[\;,]/g, (c) => `\\${c}`).replace(/\n/g, '\\n');
+  const events = items
+    .filter((i) => i.payment === 'manual' && isRecurring(i.type))
+    .map((i) => {
+      const day = Math.min(Math.max(1, i.dueDay ?? 1), 31);
+      const thisMonth = `${today.getFullYear()}-${pad(today.getMonth() + 1)}`;
+      const start = i.startMonth > thisMonth ? i.startMonth : thisMonth;
+      const [y, m] = start.split('-').map(Number);
+      const first = Math.min(day, new Date(Date.UTC(y, m, 0)).getUTCDate());
+      const rule = `FREQ=MONTHLY;BYMONTHDAY=${day > 28 ? -1 : day}${
+        i.endMonth ? `;UNTIL=${i.endMonth.replace('-', '')}${pad(new Date(Date.UTC(Number(i.endMonth.slice(0, 4)), Number(i.endMonth.slice(5)), 0)).getUTCDate())}` : ''
+      }`;
+      return [
+        'BEGIN:VEVENT',
+        `UID:bill-${i.id}@budget-planner`,
+        `DTSTAMP:${stamp}`,
+        `DTSTART;VALUE=DATE:${y}${pad(m)}${pad(first)}`,
+        `RRULE:${rule}`,
+        `SUMMARY:${esc(`Pay ${i.name} (${i.type === 'recurring-variable' ? 'about ' : ''}${formatMoney(i.amount, currency, true)})`)}`,
+        'BEGIN:VALARM',
+        'ACTION:DISPLAY',
+        `DESCRIPTION:${esc(`${i.name} is due tomorrow`)}`,
+        'TRIGGER:-PT15H',
+        'END:VALARM',
+        'END:VEVENT',
+      ].join('\r\n');
+    });
+  return ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Budget Planner//Bills//EN', 'CALSCALE:GREGORIAN', ...events, 'END:VCALENDAR', ''].join('\r\n');
+}
+
+/** "Subscription", "Pay myself · due on the 5th", or nothing. */
+export function paymentNote(i: { payment?: 'auto' | 'manual'; dueDay?: number }) {
+  if (i.payment === 'auto') return 'Subscription';
+  if (i.payment === 'manual') return i.dueDay ? `Pay myself · due on day ${i.dueDay}` : 'Pay myself';
+  return '';
 }
