@@ -56,6 +56,14 @@ export function useRevolutSync() {
 
   const refreshStatus = useCallback(() => run('status', async () => setStatus(await syncApi.status(config))), [run, config]);
 
+  // Load who is connected as soon as the passphrase is there, so Settings shows each bank without pressing
+  // "Check connection" (quietly: a failure here leaves the buttons and messages alone).
+  const loadStatus = useCallback(() => {
+    if (!configured) return;
+    syncApi.status(config).then(setStatus, () => {});
+  }, [configured, config]);
+  useEffect(() => loadStatus(), [loadStatus]);
+
   const connect = useCallback((who: { owner?: string; bank?: string; country?: string } = {}) => {
     // Browsers only allow a new tab opened directly from the click, so on web open it now and point it at
     // the bank page once the server replies.
@@ -92,6 +100,7 @@ export function useRevolutSync() {
         const removed = transfers.filter((id) => known.has(id)).length;
         applySync(added, new Date().toISOString(), income, transfers, res.owners ?? ['me']);
         setStatus((st) => ({ ...(st ?? { connected: true }), connected: true, validUntil: res.validUntil }));
+        loadStatus();
         const parts = [];
         if (added.length) parts.push(`${added.length} new transactions`);
         if (income?.length) parts.push(`${income.length} income payments`);
@@ -106,7 +115,7 @@ export function useRevolutSync() {
           error: !!problems && !parts.length,
         });
       }),
-    [run, config, applySync],
+    [run, config, applySync, loadStatus],
   );
 
   // Auto-sync once per app start if it has been more than 6 hours.
