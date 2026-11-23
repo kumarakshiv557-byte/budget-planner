@@ -7,7 +7,7 @@ import { MoneyFlowCard } from '@/components/money-flow-card';
 import { SubscriptionsCard } from '@/components/subscriptions-card';
 import { PairedBars, ShareBar, StatTile, TrendChart } from '@/components/charts';
 import { ThemedText } from '@/components/themed-text';
-import { Card, MonthSwitcher, Screen, styles, useCategoryColor, useMoney } from '@/components/ui';
+import { Card, MonthSwitcher, Screen, styles, useCategoryColor, useMoney, WhoseFilter } from '@/components/ui';
 import { type BreakdownDim, currentMonth, monthLabel, summarizeMonth, trend } from '@/lib/budget';
 import { useBudget } from '@/lib/store';
 import { ITEM_TYPES } from '@/lib/types';
@@ -15,7 +15,7 @@ import { ITEM_TYPES } from '@/lib/types';
 const TYPE_LABEL = Object.fromEntries(ITEM_TYPES.map((t) => [t.id, t.label]));
 
 export default function OverviewScreen() {
-  const { state } = useBudget();
+  const { state, allState } = useBudget();
   const money = useMoney();
   const colorFor = useCategoryColor();
   const [month, setMonth] = useState(currentMonth());
@@ -25,10 +25,11 @@ export default function OverviewScreen() {
   const months = trend(state, month, 6);
   const catName = (id: string | null) => state.categories.find((c) => c.id === id)?.name ?? 'Uncategorised';
   const remaining = summary.forecast - summary.actual;
-  const empty = !state.items.length && !state.transactions.length && !state.income.length;
+  const empty = !allState.items.length && !allState.transactions.length && !allState.income.length;
 
   return (
     <Screen title="Overview" right={<MonthSwitcher month={month} onChange={setMonth} />}>
+      <WhoseFilter />
       {empty ? (
         <Card title="Start here">
           <ThemedText type="small" themeColor="textSecondary">

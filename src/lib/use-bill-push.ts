@@ -64,7 +64,7 @@ async function registration() {
 
 /** Push reminders for "Pay myself" bills, the day before each is due. Web only. */
 export function useBillPush() {
-  const { state, ready } = useBudget();
+  const { allState: state, ready } = useBudget();
   const [status, setStatus] = useState<PushState>(localStatus);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ text: string; error?: boolean } | null>(null);

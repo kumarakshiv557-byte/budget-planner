@@ -127,6 +127,41 @@ export function Chips<T extends string>({
   );
 }
 
+/** A tap-to-toggle line with ☑ / ☐. */
+export function Checkbox({ label, value, onChange }: { label: string; value: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <Pressable onPress={() => onChange(!value)} accessibilityRole="checkbox" accessibilityState={{ checked: value }} style={{ paddingVertical: Spacing.one }}>
+      <ThemedText type="small">
+        {value ? '☑' : '☐'} {label}
+      </ThemedText>
+    </Pressable>
+  );
+}
+
+/** Pick whose money a line is: Me, Wife, Mom… */
+export function PersonChips({ value, onChange }: { value: string; onChange: (id: string) => void }) {
+  const { allState } = useBudget();
+  return <Chips options={allState.people.map((p) => ({ id: p.id, label: p.name }))} value={value} onChange={onChange} />;
+}
+
+/** The household filter at the top of a screen: everyone together, or one person's money. */
+export function WhoseFilter() {
+  const { allState, whose, setWhose } = useBudget();
+  return (
+    <Chips
+      options={[{ id: 'all', label: 'Everyone' }, ...allState.people.map((p) => ({ id: p.id, label: p.name }))]}
+      value={whose}
+      onChange={setWhose}
+    />
+  );
+}
+
+/** " · Wife" for a line that isn't yours, else "". */
+export function usePersonTag() {
+  const { allState } = useBudget();
+  return (x: { owner?: string }) => (x.owner && x.owner !== 'me' ? ` · ${allState.people.find((p) => p.id === x.owner)?.name ?? x.owner}` : '');
+}
+
 /** "Frivolous › Eating out / food delivery", or just the category name. */
 export function useCategoryLabel() {
   const { state } = useBudget();

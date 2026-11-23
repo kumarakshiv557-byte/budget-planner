@@ -2,19 +2,37 @@ import { Fragment, useState } from 'react';
 import { Platform, Pressable, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
-import { Button, CategoryPicker, Card, Chips, Field, Label, MonthSwitcher, Screen, styles, useCategoryColor, useCategoryLabel, useIsDark, useMoney } from '@/components/ui';
+import {
+  Button,
+  CategoryPicker,
+  Card,
+  Checkbox,
+  Chips,
+  Field,
+  Label,
+  MonthSwitcher,
+  PersonChips,
+  Screen,
+  styles,
+  useCategoryColor,
+  useCategoryLabel,
+  useIsDark,
+  useMoney,
+  usePersonTag,
+  WhoseFilter,
+} from '@/components/ui';
 import { Spacing, TypeColors } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { billsCalendar, currentMonth, monthLabel, newId, paymentNote, sortedAlike, transactionsIn } from '@/lib/budget';
+import { billsCalendar, currentMonth, incomeIn, monthLabel, newId, paymentNote, sortedAlike, transactionsIn } from '@/lib/budget';
 import { downloadCalendar } from '@/lib/calendar-file';
 import { parseRevolutCsv } from '@/lib/revolut-csv';
 import { pickCsvText } from '@/lib/pick-file';
 import { useBudget } from '@/lib/store';
 import { ITEM_TYPES, PAYMENTS, isRecurring, type BudgetItem, type ItemType, type Payment, type Transaction } from '@/lib/types';
 
-type Draft = { id?: string; date: string; description: string; amount: string; categoryId: string | null; subcategoryId?: string; type: ItemType; payment?: Payment; note?: string; remark?: string };
+type Draft = { id?: string; date: string; description: string; amount: string; categoryId: string | null; subcategoryId?: string; type: ItemType; payment?: Payment; note?: string; remark?: string; owner?: string };
 
-type IncomeDraft = { id?: string; date: string; description: string; amount: string };
+type IncomeDraft = { id?: string; date: string; description: string; amount: string; owner?: string; monthly?: boolean; endMonth?: string };
 
 const TYPE_LABEL = Object.fromEntries(ITEM_TYPES.map((t) => [t.id, t.label]));
 /** Type choices when sorting, with a one-tap "Subscription" (recurring, fixed, debited automatically) first. */
@@ -28,13 +46,14 @@ const TYPE_PICKS: { id: TypePick; label: string }[] = ITEM_TYPES;
 const today = () => new Date().toISOString().slice(0, 10);
 
 export default function SpendingScreen() {
-  const { state, saveTransaction, resortTransaction, unsortTransaction, deleteTransaction, addTransactions, sortTransaction, saveItem, addIncome, saveIncome, deleteIncome } = useBudget();
+  const { state, allState, whose, saveTransaction, resortTransaction, unsortTransaction, deleteTransaction, addTransactions, sortTransaction, saveItem, addIncome, saveIncome, deleteIncome } = useBudget();
   // When fixing a sorted payment: also fix the others from the same place sorted the same way.
   const [fixOthers, setFixOthers] = useState(true);
   // A bill just added from "to sort", offered for the calendar.
   const [newBill, setNewBill] = useState<BudgetItem | null>(null);
   const [incomeDraft, setIncomeDraft] = useState<IncomeDraft | null>(null);
   const money = useMoney();
+  const personTag = usePersonTag();
   const colorFor = useCategoryColor();
   const catLabel = useCategoryLabel();
   const theme = useTheme();
@@ -46,7 +65,8 @@ export default function SpendingScreen() {
   // Half-finished picks in "to sort": a row is sorted once it has both a category and a type.
   const [picks, setPicks] = useState<Record<string, Pick>>({});
 
-  const incomeList = transactionsIn(state.income, month).sort((a, b) => b.date.localeCompare(a.date));
+  const incomeList = incomeIn(state.income, month).sort((a, b) => b.date.localeCompare(a.date));
+  const incomeEditing = incomeDraft?.id ? state.income.find((x) => x.id === incomeDraft.id) : undefined;
   const incomeAmount = Number((incomeDraft?.amount ?? '').replace(',', '.'));
   const incomeValid =
     !!incomeDraft && incomeDraft.description.trim() !== '' && Number.isFinite(incomeAmount) && incomeAmount > 0 && /^\d{4}-\d{2}-\d{2}$/.test(incomeDraft.date);
@@ -60,6 +80,8 @@ export default function SpendingScreen() {
       amount: incomeAmount,
       source: before?.source ?? 'manual',
       externalId: before?.externalId,
+      ...(incomeDraft.owner && incomeDraft.owner !== 'me' ? { owner: incomeDraft.owner } : {}),
+      ...(incomeDraft.monthly && (before?.source ?? 'manual') === 'manual' ? { monthly: true, ...(incomeDraft.endMonth ? { endMonth: incomeDraft.endMonth } : {}) } : {}),
     });
     setIncomeDraft(null);
   };
@@ -79,9 +101,11 @@ export default function SpendingScreen() {
     try {
       const text = await pickCsvText();
       if (text == null) return;
-      const r = parseRevolutCsv(text, state, newId);
-      addTransactions(r.transactions);
-      addIncome(r.income);
+      const r = parseRevolutCsv(text, allState, newId);
+      // A statement imported while looking at one person's money is theirs.
+      const tag = <T extends object>(x: T): T => (whose !== 'all' && whose !== 'me' ? { ...x, owner: whose } : x);
+      addTransactions(r.transactions.map(tag));
+      addIncome(r.income.map(tag));
       const other = r.currencies.filter((c) => c !== state.currency);
       const parts = [`Imported ${r.transactions.length} transactions${r.income.length ? ` and ${r.income.length} income payments` : ''}.`];
       if (r.skippedDuplicates) parts.push(`${r.skippedDuplicates} were already here.`);
@@ -96,11 +120,11 @@ export default function SpendingScreen() {
   };
 
   const editing = draft?.id ? state.transactions.find((t) => t.id === draft.id) : undefined;
-  const alike = editing && editing.source !== 'manual' ? sortedAlike(state, editing) : [];
+  const alike = editing && editing.source !== 'manual' ? sortedAlike(allState, editing) : [];
   const save = () => {
     if (!draft || !valid) return;
     if (editing && editing.categoryId && editing.source !== 'manual') {
-      const { subcategoryId: _s, payment: _p, note: _n, remark: _r, ...base } = editing;
+      const { subcategoryId: _s, payment: _p, note: _n, remark: _r, owner: _o, ...base } = editing;
       resortTransaction(
         {
           ...base,
@@ -113,6 +137,7 @@ export default function SpendingScreen() {
           ...(isRecurring(draft.type) && draft.payment ? { payment: draft.payment } : {}),
           ...(draft.note?.trim() ? { note: draft.note.trim() } : {}),
           ...(draft.remark?.trim() ? { remark: draft.remark.trim() } : {}),
+          ...(draft.owner && draft.owner !== 'me' ? { owner: draft.owner } : {}),
         },
         fixOthers,
       );
@@ -130,6 +155,7 @@ export default function SpendingScreen() {
       payment: isRecurring(draft.type) ? draft.payment : undefined,
       note: draft.note?.trim() || undefined,
       remark: draft.remark?.trim() || undefined,
+      owner: draft.owner && draft.owner !== 'me' ? draft.owner : undefined,
       source: draft.id ? (state.transactions.find((t) => t.id === draft.id)?.source ?? 'manual') : 'manual',
       externalId: draft.id ? state.transactions.find((t) => t.id === draft.id)?.externalId : undefined,
     });
@@ -227,6 +253,8 @@ export default function SpendingScreen() {
             placeholder="e.g. Split with Ana, she owes me half"
           />
         </View>
+        <Label>Whose money</Label>
+        <PersonChips value={draft.owner ?? 'me'} onChange={(owner) => setDraft({ ...draft, owner })} />
         <Label>Category</Label>
         <CategoryPicker
           categoryId={draft.categoryId}
@@ -282,6 +310,7 @@ export default function SpendingScreen() {
 
   return (
     <Screen title="Spending" right={<MonthSwitcher month={month} onChange={setMonth} />}>
+      <WhoseFilter />
       <ThemedText type="small" themeColor="textSecondary">
         Your actuals. Add spending by hand, or import a statement from the Revolut app (Accounts → Statement → Excel/CSV).
       </ThemedText>
@@ -290,7 +319,7 @@ export default function SpendingScreen() {
         <Button
           label="Add spending"
           onPress={() =>
-            setDraft({ date: month === currentMonth() ? today() : `${month}-01`, description: '', amount: '', categoryId: null, type: 'variable-one-time' })
+            setDraft({ date: month === currentMonth() ? today() : `${month}-01`, description: '', amount: '', categoryId: null, type: 'variable-one-time', owner: whose === 'all' ? 'me' : whose })
           }
         />
         <Button label="Import Revolut CSV" kind="secondary" onPress={importCsv} />
@@ -403,12 +432,33 @@ export default function SpendingScreen() {
               />
               <Field label="Date (YYYY-MM-DD)" value={incomeDraft.date} onChangeText={(date) => setIncomeDraft({ ...incomeDraft, date })} />
             </View>
+            <Label>Whose income</Label>
+            <PersonChips value={incomeDraft.owner ?? 'me'} onChange={(owner) => setIncomeDraft({ ...incomeDraft, owner })} />
+            {incomeEditing?.source && incomeEditing.source !== 'manual' ? null : (
+              <Checkbox
+                label="Comes in every month (e.g. a salary paid outside the bank)"
+                value={!!incomeDraft.monthly}
+                onChange={(monthly) => setIncomeDraft({ ...incomeDraft, monthly })}
+              />
+            )}
+            {incomeDraft.monthly && incomeDraft.endMonth ? (
+              <ThemedText type="small" themeColor="textSecondary">
+                Last month: {monthLabel(incomeDraft.endMonth)}.
+              </ThemedText>
+            ) : null}
             <View style={styles.row}>
               <Button label="Save" onPress={saveIncomeDraft} disabled={!incomeValid} />
               <Button label="Cancel" kind="secondary" onPress={() => setIncomeDraft(null)} />
+              {incomeDraft.id && incomeDraft.monthly && incomeEditing?.monthly ? (
+                <Button
+                  label={incomeDraft.endMonth === month ? 'Keep it going' : `Stop after ${monthLabel(month, 'short')}`}
+                  kind="secondary"
+                  onPress={() => setIncomeDraft({ ...incomeDraft, endMonth: incomeDraft.endMonth === month ? undefined : month })}
+                />
+              ) : null}
               {incomeDraft.id ? (
                 <Button
-                  label="Delete"
+                  label={incomeEditing?.monthly ? 'Delete (every month)' : 'Delete'}
                   kind="danger"
                   onPress={() => {
                     deleteIncome(incomeDraft.id!);
@@ -422,19 +472,26 @@ export default function SpendingScreen() {
           <Button
             label="Add income"
             kind="secondary"
-            onPress={() => setIncomeDraft({ date: month === currentMonth() ? today() : `${month}-01`, description: '', amount: '' })}
+            onPress={() =>
+              setIncomeDraft({ date: month === currentMonth() ? today() : `${month}-01`, description: '', amount: '', owner: whose === 'all' ? 'me' : whose })
+            }
           />
         )}
         {incomeList.map((t) => (
           <Pressable
             key={t.id}
-            onPress={() => setIncomeDraft({ id: t.id, date: t.date, description: t.description, amount: String(t.amount) })}
+            onPress={() => {
+              // A monthly entry is edited as a whole, from its first month.
+              const saved = state.income.find((x) => x.id === t.id) ?? t;
+              setIncomeDraft({ id: t.id, date: saved.date, description: t.description, amount: String(t.amount), owner: t.owner, monthly: t.monthly, endMonth: t.endMonth });
+            }}
             style={{ flexDirection: 'row', gap: Spacing.two, alignItems: 'center', paddingVertical: 6, borderTopWidth: 1, borderColor: theme.border }}>
             <View style={{ flex: 1 }}>
               <ThemedText type="small">{t.description}</ThemedText>
               <ThemedText type="small" themeColor="textSecondary">
                 {t.date}
-                {t.source === 'csv' ? ' · imported' : t.source === 'revolut' ? ' · synced' : ''}
+                {t.monthly ? ' · every month' : t.source === 'csv' ? ' · imported' : t.source === 'revolut' ? ' · synced' : ''}
+                {personTag(t)}
               </ThemedText>
             </View>
             <ThemedText type="small" style={{ color: theme.good }}>
@@ -467,6 +524,7 @@ export default function SpendingScreen() {
                     {t.date} · {t.categoryId ? `${catLabel(t.categoryId, t.subcategoryId)} · ${TYPE_LABEL[t.type]}` : 'Unsorted'}
                     {t.payment ? ` · ${paymentNote(t)}` : ''}
                     {t.source === 'csv' ? ' · imported' : t.source === 'revolut' ? ' · synced' : ''}
+                    {personTag(t)}
                   </ThemedText>
                   {t.remark ? (
                     <ThemedText type="small" style={{ fontStyle: 'italic' }}>

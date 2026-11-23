@@ -6,7 +6,7 @@ import { ThemedText } from '@/components/themed-text';
 import { Card, useCategoryColor, useCategoryLabel, useIsDark, useMoney } from '@/components/ui';
 import { Spacing, TypeColors } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { OTHER_INCOME, monthLabel, moneyFlow, transactionsIn, type FlowNode } from '@/lib/budget';
+import { OTHER_INCOME, incomeIn, monthLabel, moneyFlow, transactionsIn, type FlowNode } from '@/lib/budget';
 import { useBudget } from '@/lib/store';
 import { ITEM_TYPES, type ItemType, type Month } from '@/lib/types';
 
@@ -63,7 +63,7 @@ export function MoneyFlowCard({ month }: { month: Month }) {
   const lines = !node
     ? []
     : node.kind === 'income'
-      ? transactionsIn(state.income, month)
+      ? incomeIn(state.income, month)
           .filter((i) =>
             node.key === OTHER_INCOME
               ? !topSources.has(i.description.trim().toLowerCase())

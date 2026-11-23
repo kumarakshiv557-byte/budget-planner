@@ -2,9 +2,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { addMonths, billsCalendar, billsFor, breakdown, matchRule, recategorizeIn, resortIn, ruleFrom, sortIn, sortedAlike, subscriptionsTotal, unsortIn, moneyFlow, categorize, typeFor, summarizeMonth, trend } from './budget.ts';
+import { addMonths, billsCalendar, forPerson, incomeIn, billsFor, breakdown, matchRule, recategorizeIn, resortIn, ruleFrom, sortIn, sortedAlike, subscriptionsTotal, unsortIn, moneyFlow, categorize, typeFor, summarizeMonth, trend } from './budget.ts';
 import { initialState, migrate } from './defaults.ts';
 import { parseRevolutCsv } from './revolut-csv.ts';
+import { applyTransfers, mergeSynced, mergeSyncedIncome } from './sync.ts';
 import type { BudgetState } from './types.ts';
 
 let n = 0;
@@ -375,4 +376,36 @@ test('fixing a wrongly sorted payment also fixes the ones sorted alike and the r
   const back = unsortIn(s, 'a', true);
   assert.deepEqual(back.transactions.map((t) => t.categoryId), [null, null, 'frivolous', 'essentials']);
   assert.equal(matchRule('Zomato order', back.rules), null);
+});
+
+test('household: each person sees their own lines; monthly income repeats until it stops', () => {
+  const s = sample();
+  s.transactions[1] = { ...s.transactions[1], owner: 'wife' };
+  s.items[0] = { ...s.items[0], owner: 'mom' };
+  s.income = [
+    { id: 'sal', date: '2026-09-28', description: "Mom's salary", amount: 900, source: 'manual', owner: 'mom', monthly: true, endMonth: '2026-11' },
+    { id: 'gift', date: '2026-11-03', description: 'Gift', amount: 50, source: 'manual' },
+  ];
+  assert.deepEqual(forPerson(s, 'wife').transactions.map((t) => t.id), ['t2']);
+  assert.deepEqual(forPerson(s, 'me').transactions.map((t) => t.id), ['t1', 't3', 't4']);
+  assert.deepEqual(forPerson(s, 'mom').items.map((i) => i.id), ['rent']);
+  assert.equal(forPerson(s, 'all'), s);
+  assert.deepEqual(incomeIn(s.income, '2026-11').map((i) => [i.id, i.date]), [['sal', '2026-11-28'], ['gift', '2026-11-03']]);
+  assert.deepEqual(incomeIn(s.income, '2026-08'), []);
+  assert.deepEqual(incomeIn(s.income, '2026-12'), []);
+  assert.equal(moneyFlow(forPerson(s, 'mom'), '2026-10').income, 900);
+});
+
+test('sync: transfers between your accounts are taken out and never come back; lines keep whose account they came from', () => {
+  const s = sample();
+  s.transactions.push({ id: 'old', date: '2026-11-10', description: 'To Ana', amount: 500, categoryId: null, type: 'variable-one-time', source: 'revolut', externalId: 'eb:me:x1' });
+  const next = { ...s, ...applyTransfers(s, ['eb:me:x1', 'eb:wife:y1']) };
+  assert.equal(next.transactions.some((t) => t.id === 'old'), false);
+  const rows = [
+    { externalId: 'eb:wife:y1', date: '2026-11-11', description: 'From partner', amount: 500, currency: 'EUR', owner: 'wife' },
+    { externalId: 'eb:wife:y2', date: '2026-11-12', description: 'Pingo Doce', amount: 30, currency: 'EUR', owner: 'wife' },
+  ];
+  const added = mergeSynced(next, rows, id);
+  assert.deepEqual(added.map((t) => [t.description, t.owner]), [['Pingo Doce', 'wife']]);
+  assert.deepEqual(mergeSyncedIncome(next, rows, id).map((t) => t.description), ['Pingo Doce']);
 });

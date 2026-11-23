@@ -1,4 +1,4 @@
-import { isRecurring, type BudgetItem, type BudgetState, type ItemType, type Month, type Payment, type Transaction } from './types.ts';
+import { isRecurring, ownerOf, type BudgetItem, type BudgetState, type Income, type ItemType, type Month, type Payment, type Transaction } from './types.ts';
 
 export function monthOf(date: string): Month {
   return date.slice(0, 7);
@@ -44,6 +44,27 @@ export type MonthSummary = {
 
 export function transactionsIn<T extends { date: string }>(transactions: T[], month: Month): T[] {
   return transactions.filter((t) => monthOf(t.date) === month);
+}
+
+/**
+ * Income in a month: what came in that month, plus income added by hand as monthly (shown on the same
+ * day of each month from its start until its end month). A monthly entry keeps its own id in every month.
+ */
+export function incomeIn(income: Income[], month: Month): Income[] {
+  return income.flatMap((i) => {
+    if (!i.monthly) return monthOf(i.date) === month ? [i] : [];
+    if (month < monthOf(i.date) || (i.endMonth && month > i.endMonth)) return [];
+    const [y, m] = month.split('-').map(Number);
+    const day = Math.min(Number(i.date.slice(8, 10)) || 1, new Date(Date.UTC(y, m, 0)).getUTCDate());
+    return [{ ...i, date: `${month}-${String(day).padStart(2, '0')}` }];
+  });
+}
+
+/** The household's data as one person sees it ("all" = everyone). Plans with no owner belong to "me". */
+export function forPerson(state: BudgetState, whose: string): BudgetState {
+  if (whose === 'all') return state;
+  const mine = (x: { owner?: string }) => ownerOf(x) === whose;
+  return { ...state, transactions: state.transactions.filter(mine), income: state.income.filter(mine), items: state.items.filter(mine) };
 }
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -223,7 +244,7 @@ export function moneyFlow(state: BudgetState, month: Month, maxSources = 5) {
   const links: FlowLink[] = [];
 
   const bySource = new Map<string, { label: string; value: number }>();
-  for (const i of transactionsIn(state.income ?? [], month)) {
+  for (const i of incomeIn(state.income ?? [], month)) {
     const k = i.description.trim().toLowerCase();
     const g = bySource.get(k) ?? { label: i.description.trim(), value: 0 };
     g.value += i.amount;

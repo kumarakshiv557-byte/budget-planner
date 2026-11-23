@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { View } from 'react-native';
+import { Platform, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { Button, Card, Chips, Field, Screen, styles, useCategoryColor } from '@/components/ui';
@@ -7,12 +7,13 @@ import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { useBudget } from '@/lib/store';
 import { useBillPush } from '@/lib/use-bill-push';
+import { connectLink } from '@/lib/sync';
 import { useRevolutSync } from '@/lib/use-revolut-sync';
 
 const CURRENCIES = ['EUR', 'INR', 'GBP', 'USD'].map((c) => ({ id: c, label: c }));
 
 export default function SettingsScreen() {
-  const { state, updateCategory, setCurrency, resetAll, addSubcategory, renameSubcategory, deleteSubcategory } = useBudget();
+  const { state, renamePerson, updateCategory, setCurrency, resetAll, addSubcategory, renameSubcategory, deleteSubcategory } = useBudget();
   const [newSub, setNewSub] = useState<Record<string, string>>({});
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const colorFor = useCategoryColor();
@@ -21,6 +22,16 @@ export default function SettingsScreen() {
 
   return (
     <Screen title="Settings">
+      <Card
+        title="Household"
+        subtitle="Whose money each line is. Pick a person at the top of Overview, Budget or Spending to see only theirs. Lines from before this were yours.">
+        {state.people.map((p) => (
+          <View key={p.id} style={styles.row}>
+            <Field label={p.id === 'me' ? 'You' : 'Name'} value={p.name} onChangeText={(name) => renamePerson(p.id, name)} />
+          </View>
+        ))}
+      </Card>
+
       <Card title="Currency" subtitle="Amounts are shown in this currency. Your Revolut account is EUR.">
         <Chips options={CURRENCIES} value={state.currency} onChange={setCurrency} />
       </Card>
@@ -104,14 +115,24 @@ export default function SettingsScreen() {
   );
 }
 
+const daysUntil = (iso: string) => Math.ceil((new Date(iso).getTime() - Date.now()) / 86400_000);
+
 function RevolutSyncCard() {
   const theme = useTheme();
   const { config, setConfig, configured, status, busy, message, refreshStatus, connect, syncNow, lastSyncedAt } = useRevolutSync();
+  const { allState } = useBudget();
+  const others = allState.people.filter((p) => p.id !== 'me');
+  const [banks, setBanks] = useState<Record<string, { bank: string; country: string }>>({});
+  const [copied, setCopied] = useState<string | null>(null);
+  const bankOf = (id: string) => banks[id] ?? { bank: 'Revolut', country: 'PT' };
+  const connectionOf = (id: string) => status?.connections?.find((c) => c.owner === id);
   const fmt = (iso: string) => new Date(iso).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' });
   const daysLeft = status?.validUntil ? Math.ceil((new Date(status.validUntil).getTime() - Date.now()) / 86400_000) : null;
 
   return (
-    <Card title="Revolut sync" subtitle="Pulls your Revolut spending automatically through Enable Banking (EU open banking).">
+    <Card
+      title="Bank sync"
+      subtitle="Pulls spending and income automatically through Enable Banking (EU open banking). Money moved between two connected accounts is left out, so it isn't counted twice.">
       <View style={[styles.row, { marginTop: Spacing.two }]}>
         <Field
           label="Sync server URL"
@@ -132,7 +153,7 @@ function RevolutSyncCard() {
         />
       </View>
       <View style={[styles.row, { marginTop: Spacing.three }]}>
-        <Button label={busy === 'connect' ? 'Opening…' : 'Connect Revolut'} onPress={connect} disabled={!configured || !!busy} />
+        <Button label={busy === 'connect' ? 'Opening…' : 'Connect my Revolut'} onPress={() => connect()} disabled={!configured || !!busy} />
         <Button label={busy === 'status' ? 'Checking…' : 'Check connection'} kind="secondary" onPress={refreshStatus} disabled={!configured || !!busy} />
         <Button label={busy === 'sync' ? 'Syncing…' : 'Sync now'} kind="secondary" onPress={syncNow} disabled={!configured || !!busy} />
       </View>
@@ -144,6 +165,57 @@ function RevolutSyncCard() {
             : '⚠ Not connected. Press "Connect Revolut".'}
         </ThemedText>
       ) : null}
+      {others.map((p) => {
+        const c = connectionOf(p.id);
+        const b = bankOf(p.id);
+        const link = connectLink(config, p.id, b.bank, b.country);
+        return (
+          <View key={p.id} style={{ gap: Spacing.two, paddingTop: Spacing.three, marginTop: Spacing.two, borderTopWidth: 1, borderColor: theme.border }}>
+            <ThemedText type="smallBold">{p.name}&apos;s bank</ThemedText>
+            {c ? (
+              <ThemedText type="small">
+                ✓ {c.bank} connected{c.accounts.length ? ` (${c.accounts.map((a) => a.currency ?? a.name).join(', ')})` : ''}. Access lasts{' '}
+                {daysUntil(c.validUntil)} more days.
+              </ThemedText>
+            ) : (
+              <ThemedText type="small" themeColor="textSecondary">
+                Not connected. {p.name} approves it on their own phone: send them the link, or connect here while they sign in.
+              </ThemedText>
+            )}
+            <View style={styles.row}>
+              <Field label="Bank" value={b.bank} onChangeText={(bank) => setBanks({ ...banks, [p.id]: { ...b, bank } })} placeholder="Revolut" />
+              <Field
+                label="Country (2 letters)"
+                value={b.country}
+                onChangeText={(country) => setBanks({ ...banks, [p.id]: { ...b, country: country.slice(0, 2).toUpperCase() } })}
+                autoCapitalize="characters"
+                placeholder="PT"
+              />
+            </View>
+            <View style={styles.row}>
+              {Platform.OS === 'web' ? (
+                <Button
+                  label={copied === p.id ? 'Link copied ✓' : `Copy link for ${p.name}`}
+                  kind="secondary"
+                  disabled={!configured}
+                  onPress={() =>
+                    navigator.clipboard
+                      ?.writeText(link)
+                      .then(() => setCopied(p.id))
+                      .catch(() => {})
+                  }
+                />
+              ) : null}
+              <Button
+                label={busy === 'connect' ? 'Opening…' : 'Connect here'}
+                kind="secondary"
+                onPress={() => connect({ owner: p.id, bank: b.bank, country: b.country })}
+                disabled={!configured || !!busy}
+              />
+            </View>
+          </View>
+        );
+      })}
       {lastSyncedAt ? (
         <ThemedText type="small" themeColor="textSecondary">
           Last synced {fmt(lastSyncedAt)}. The app syncs by itself when opened if it has been 6 hours.
