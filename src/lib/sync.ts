@@ -104,6 +104,8 @@ export const syncApi = {
       transfers?: string[];
       /** Whose connections were read. */
       owners?: string[];
+      /** Connections the bank wouldn't read (fully); the rest synced. */
+      problems?: { owner: string; bank: string; message: string }[];
       validUntil: string;
       dateFrom: string;
     }>(cfg, 'sync', {

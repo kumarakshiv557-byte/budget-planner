@@ -97,7 +97,12 @@ export function useRevolutSync() {
         const moved = pairs
           ? ` Left out ${pairs} transfer${pairs === 1 ? '' : 's'} between your own accounts${removed ? ` (and took out ${removed} line${removed === 1 ? '' : 's'} added before)` : ''}.`
           : '';
-        setMessage({ text: (parts.length ? `Added ${parts.join(' and ')} from the bank.` : 'Up to date. Nothing new.') + moved });
+        const nameOf = (id: string) => s.people.find((p) => p.id === id)?.name ?? id;
+        const problems = (res.problems ?? []).map((p) => ` ⚠ ${nameOf(p.owner)}'s ${p.bank}: ${p.message}.`).join('');
+        setMessage({
+          text: (parts.length ? `Added ${parts.join(' and ')} from the bank.` : 'Up to date. Nothing new.') + moved + problems,
+          error: !!problems && !parts.length,
+        });
       }),
     [run, config, applySync],
   );
