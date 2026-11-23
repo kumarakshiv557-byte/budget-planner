@@ -53,7 +53,16 @@ export function mergeSyncedIncome(state: BudgetState, rows: SyncedTransaction[],
 
 export type SyncConfig = { url: string; secret: string };
 
-export type Connection = { owner: string; bank: string; validUntil: string; accounts: { name?: string; currency?: string }[] };
+export type Connection = {
+  owner: string;
+  /** The bank's name in Enable Banking (what a new link must use). */
+  bank: string;
+  /** The bank as the account itself reports it (from its SWIFT/BIC). */
+  bankName?: string;
+  bic?: string;
+  validUntil: string;
+  accounts: { name?: string; currency?: string }[];
+};
 export type SyncStatus = {
   connected: boolean;
   validUntil?: string;
@@ -112,6 +121,8 @@ async function call<T>(cfg: SyncConfig, route: string, init: RequestInit = {}): 
 
 export const syncApi = {
   status: (cfg: SyncConfig) => call<SyncStatus>(cfg, 'status'),
+  banks: (cfg: SyncConfig, country: string) =>
+    call<{ country: string; banks: { name: string; bic?: string }[] }>(cfg, `banks?country=${encodeURIComponent(country)}`),
   connect: (cfg: SyncConfig, who: { owner?: string; bank?: string; country?: string } = {}) =>
     call<{ url: string; bank: string; validUntil: string }>(cfg, 'connect', { method: 'POST', body: JSON.stringify(who) }),
   sync: (cfg: SyncConfig, dateFrom?: string, fullFor: string[] = []) =>

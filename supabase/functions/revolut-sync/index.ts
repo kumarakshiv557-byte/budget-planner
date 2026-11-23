@@ -5,7 +5,9 @@
 //   GET  /start     → ?owner=&bank=&country= redirects straight to the bank's consent screen (open on a phone; no
 //                     passphrase needed because starting consent reveals nothing, and reading data still needs it)
 //   GET  /callback  → Enable Banking redirects here after consent; stores the session
-//   GET  /status    → { connected, validUntil, accounts, connections: [{ owner, bank, validUntil, accounts }] }
+//   GET  /status    → { connected, validUntil, accounts, connections: [{ owner, bank, bankName, bic, validUntil, accounts }] }
+//                     bankName/bic come from the account's SWIFT/BIC as the bank reports it.
+//   GET  /banks     → ?country=PT { banks: [{ name, bic? }] } banks Enable Banking can connect to, for the app's picker
 //   POST /sync      → { transactions, income, transfers } booked spending and money in since body.dateFrom
 //                     (default: 90 days ago) from every connection. body.fullFor lists owners to read the full
 //                     ~90 days for (a newly connected account). Money moved between two connected accounts is
@@ -78,7 +80,9 @@ function authorised(req: Request) {
   return secret.length >= 12 && req.headers.get('x-sync-secret') === secret;
 }
 
-type Aspsp = { name: string; country: string; maximum_consent_validity?: number };
+type Aspsp = { name: string; country: string; bic?: string; maximum_consent_validity?: number };
+/** The bank holding an account, as it reports itself (SWIFT/BIC and name). */
+type Servicer = { bic_fi?: string | null; name?: string | null };
 type Who = { owner?: unknown; bank?: unknown; country?: unknown };
 
 /** Owner labels are short ids the app uses ("me", "wife", "mom"); anything else is cut down to that shape. */
@@ -130,7 +134,7 @@ async function callback(req: Request) {
   const session = await eb<{
     session_id: string;
     aspsp?: { name?: string };
-    accounts: { uid: string; currency?: string; name?: string; account_id?: { iban?: string } }[];
+    accounts: { uid: string; currency?: string; name?: string; account_id?: { iban?: string }; account_servicer?: Servicer }[];
     access: { valid_until: string };
   }>('/sessions', { method: 'POST', body: JSON.stringify({ code }) });
 
@@ -138,7 +142,14 @@ async function callback(req: Request) {
     session_id: session.session_id,
     owner: st.owner ?? 'me',
     bank: session.aspsp?.name ?? null,
-    accounts: session.accounts.map((a) => ({ uid: a.uid, currency: a.currency, name: a.name, iban: a.account_id?.iban ?? null })),
+    accounts: session.accounts.map((a) => ({
+      uid: a.uid,
+      currency: a.currency,
+      name: a.name,
+      iban: a.account_id?.iban ?? null,
+      bic: a.account_servicer?.bic_fi ?? '',
+      servicer: a.account_servicer?.name ?? null,
+    })),
     valid_until: session.access.valid_until,
   });
   if (error) throw error;
@@ -152,7 +163,8 @@ type Session = {
   valid_until: string;
   /** When this connection was first synced; null for a new one, which then gets its full history. */
   synced_at: string | null;
-  accounts: { uid: string; currency?: string; name?: string; iban?: string | null }[];
+  /** bic: '' once looked up and not given; missing on connections made before it was stored. */
+  accounts: { uid: string; currency?: string; name?: string; iban?: string | null; bic?: string; servicer?: string | null }[];
 };
 
 /** The newest unexpired connection for each owner. */
@@ -168,20 +180,70 @@ async function liveSessions(): Promise<Session[]> {
   return [...byOwner.values()];
 }
 
-async function status() {
+/** Fill in the SWIFT/BIC of accounts connected before it was stored (once; the result is saved). */
+async function fillBics(sessions: Session[], req: Request) {
+  for (const s of sessions) {
+    const missing = s.accounts.filter((a) => a.bic === undefined);
+    if (!missing.length) continue;
+    for (const a of missing) {
+      try {
+        const d = await eb<{ account_servicer?: Servicer }>(`/accounts/${a.uid}/details`, { headers: psuHeaders(req) });
+        a.bic = d.account_servicer?.bic_fi ?? '';
+        a.servicer = d.account_servicer?.name ?? null;
+      } catch (e) {
+        console.error(`status: details for ${a.uid} failed`, e);
+      }
+    }
+    if (missing.some((a) => a.bic !== undefined)) await db.from('eb_sessions').update({ accounts: s.accounts }).eq('session_id', s.session_id);
+  }
+}
+
+/** Banks by the first four letters of their SWIFT/BIC, for when the bank sends a BIC but no name. */
+const BIC_BANKS: Record<string, string> = {
+  REVO: 'Revolut',
+  TOTA: 'Santander Totta',
+  CGDI: 'Caixa Geral de Depósitos',
+  BCOM: 'Millennium BCP',
+  BBPI: 'BPI',
+  BESC: 'Novo Banco',
+  CCCM: 'Crédito Agrícola',
+  ACTV: 'ActivoBank',
+  NTSB: 'N26',
+  TRWI: 'Wise',
+};
+
+async function status(req: Request) {
   const all = await liveSessions();
-  const connections = all.map((s) => ({
-    owner: s.owner,
-    bank: s.bank ?? 'Revolut',
-    validUntil: s.valid_until,
-    accounts: s.accounts.map((a) => ({ name: a.name, currency: a.currency })),
-  }));
+  await fillBics(all, req);
+  const connections = all.map((s) => {
+    const withBic = s.accounts.find((a) => a.bic) ?? s.accounts[0];
+    const bic = withBic?.bic || undefined;
+    return {
+      owner: s.owner,
+      bank: s.bank ?? 'Revolut',
+      bankName: withBic?.servicer || (bic && BIC_BANKS[bic.slice(0, 4).toUpperCase()]) || s.bank || 'Revolut',
+      ...(bic ? { bic } : {}),
+      validUntil: s.valid_until,
+      accounts: s.accounts.map((a) => ({ name: a.name, currency: a.currency })),
+    };
+  });
   const me = all.find((s) => s.owner === 'me');
   return json({
     connected: all.length > 0,
     ...(me ? { validUntil: me.valid_until, accounts: me.accounts.map((a) => ({ name: a.name, currency: a.currency })) } : {}),
     connections,
   });
+}
+
+/** Banks Enable Banking can connect to in a country, for the app's bank picker. */
+async function banks(req: Request) {
+  const country = (textOf(new URL(req.url).searchParams.get('country'), 2) || 'PT').toUpperCase();
+  const { aspsps } = await eb<{ aspsps: Aspsp[] }>(`/aspsps?country=${country}&psu_type=personal`);
+  const list = aspsps
+    .filter((a) => a.country === country)
+    .map((a) => ({ name: a.name, ...(a.bic ? { bic: a.bic } : {}) }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  return json({ country, banks: list });
 }
 
 /** Short, readable reason from an Enable Banking error. */
@@ -300,7 +362,8 @@ Deno.serve(async (req) => {
     }
     if (!authorised(req)) return json({ error: 'Wrong or missing sync passphrase.' }, 401);
     if (route === 'connect' && req.method === 'POST') return json(await createAuth(req, await req.json().catch(() => ({}))));
-    if (route === 'status' && req.method === 'GET') return await status();
+    if (route === 'status' && req.method === 'GET') return await status(req);
+    if (route === 'banks' && req.method === 'GET') return await banks(req);
     if (route === 'sync' && req.method === 'POST') return await sync(req);
     return json({ error: 'Not found' }, 404);
   } catch (e) {
