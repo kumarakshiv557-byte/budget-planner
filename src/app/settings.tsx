@@ -120,11 +120,14 @@ const daysUntil = (iso: string) => Math.ceil((new Date(iso).getTime() - Date.now
 function RevolutSyncCard() {
   const theme = useTheme();
   const { config, setConfig, configured, status, busy, message, refreshStatus, connect, syncNow, lastSyncedAt } = useRevolutSync();
-  const { allState } = useBudget();
+  const { allState, setPersonBank } = useBudget();
   const others = allState.people.filter((p) => p.id !== 'me');
-  const [banks, setBanks] = useState<Record<string, { bank: string; country: string }>>({});
   const [copied, setCopied] = useState<string | null>(null);
-  const bankOf = (id: string) => banks[id] ?? { bank: 'Revolut', country: 'PT' };
+  // Saved with the household data, so the same bank is used on every screen and after a restart.
+  const bankOf = (id: string) => {
+    const p = allState.people.find((x) => x.id === id);
+    return { bank: p?.bank ?? 'Revolut', country: p?.country ?? 'PT' };
+  };
   const connectionOf = (id: string) => status?.connections?.find((c) => c.owner === id);
   const fmt = (iso: string) => new Date(iso).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' });
   const daysLeft = status?.validUntil ? Math.ceil((new Date(status.validUntil).getTime() - Date.now()) / 86400_000) : null;
@@ -183,11 +186,11 @@ function RevolutSyncCard() {
               </ThemedText>
             )}
             <View style={styles.row}>
-              <Field label="Bank" value={b.bank} onChangeText={(bank) => setBanks({ ...banks, [p.id]: { ...b, bank } })} placeholder="Revolut" />
+              <Field label="Bank" value={b.bank} onChangeText={(bank) => { setPersonBank(p.id, bank, b.country); setCopied(null); }} placeholder="Revolut" />
               <Field
                 label="Country (2 letters)"
                 value={b.country}
-                onChangeText={(country) => setBanks({ ...banks, [p.id]: { ...b, country: country.slice(0, 2).toUpperCase() } })}
+                onChangeText={(country) => { setPersonBank(p.id, b.bank, country.slice(0, 2).toUpperCase()); setCopied(null); }}
                 autoCapitalize="characters"
                 placeholder="PT"
               />
@@ -195,7 +198,7 @@ function RevolutSyncCard() {
             <View style={styles.row}>
               {Platform.OS === 'web' ? (
                 <Button
-                  label={copied === p.id ? 'Link copied ✓' : `Copy link for ${p.name}`}
+                  label={copied === p.id ? `${b.bank.trim() || 'Revolut'} link copied ✓` : `Copy ${b.bank.trim() || 'Revolut'} link for ${p.name}`}
                   kind="secondary"
                   disabled={!configured}
                   onPress={() =>

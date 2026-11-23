@@ -39,7 +39,7 @@ export const PAYMENTS: { id: Payment; label: string; hint: string }[] = [
 export type Subcategory = { id: string; categoryId: string; name: string };
 
 /** Someone in the household whose money is tracked: "me" is you; the others are named in Settings. */
-export type Person = { id: string; name: string };
+export type Person = { id: string; name: string; /** Their bank, as Enable Banking names it, and its country. */ bank?: string; country?: string };
 
 /** Lines with no owner belong to "me". */
 export const ownerOf = (x: { owner?: string }) => x.owner ?? 'me';
