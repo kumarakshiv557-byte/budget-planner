@@ -1,5 +1,5 @@
 import { matchRule } from './budget.ts';
-import type { BudgetItem, BudgetState, Category, CategoryRule, Person, Subcategory, Transaction } from './types.ts';
+import type { BudgetItem, BudgetState, Category, CategoryRule, ItemType, Person, Subcategory, Transaction } from './types.ts';
 
 // Categorical colours in fixed order (validated for colour-blind separation).
 // Light/dark steps are chosen separately rather than auto-flipped.
@@ -73,10 +73,17 @@ export function migrate(saved: Partial<BudgetState>): BudgetState {
   if (!saved.subcategories) s = addEatingOut(s);
   if ((s.dataVersion ?? 1) < 2) s = dropSubscriptionsCategory(s);
   if ((s.dataVersion ?? 1) < 3) s = resetSorting(addWork(s));
+  if ((s.dataVersion ?? 1) < 4) s = oneTimeLines(s);
   return { ...s, dataVersion: DATA_VERSION };
 }
 
-export const DATA_VERSION = 3;
+export const DATA_VERSION = 4;
+
+/** Spending lines (and what was learned from them) no longer split one-time into fixed and variable. */
+function oneTimeLines(s: BudgetState): BudgetState {
+  const one = <T extends { type?: ItemType }>(x: T): T => (x.type === 'fixed-one-time' ? { ...x, type: 'variable-one-time' } : x);
+  return { ...s, transactions: s.transactions.map(one), rules: s.rules.map(one) };
+}
 
 function addWork(s: BudgetState): BudgetState {
   if (s.categories.some((c) => c.id === 'work')) return s;

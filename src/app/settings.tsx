@@ -13,7 +13,7 @@ import { useRevolutSync } from '@/lib/use-revolut-sync';
 const CURRENCIES = ['EUR', 'INR', 'GBP', 'USD'].map((c) => ({ id: c, label: c }));
 
 export default function SettingsScreen() {
-  const { state, renamePerson, updateCategory, setCurrency, resetAll, addSubcategory, renameSubcategory, deleteSubcategory } = useBudget();
+  const { state, cloud, renamePerson, updateCategory, setCurrency, resetAll, addSubcategory, renameSubcategory, deleteSubcategory } = useBudget();
   const [newSub, setNewSub] = useState<Record<string, string>>({});
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const colorFor = useCategoryColor();
@@ -92,12 +92,29 @@ export default function SettingsScreen() {
 
       <BillRemindersCard />
 
-      <Card title="Data" subtitle="Everything is stored on this device only.">
+      <Card
+        title="Data"
+        subtitle={
+          cloud.kind === 'off'
+            ? 'Stored on this device only. Add the sync passphrase above to keep it on your server, shared by every device.'
+            : 'Kept on your server (behind the sync passphrase), so every device with the passphrase shows the same budget.'
+        }>
+        {cloud.kind !== 'off' ? (
+          <ThemedText type="small" style={{ color: cloud.kind === 'error' ? theme.critical : theme.textSecondary }}>
+            {cloud.kind === 'saving'
+              ? 'Saving…'
+              : cloud.kind === 'saved'
+                ? `✓ Saved on the server${cloud.at ? `, ${new Date(cloud.at).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })}` : ''}.`
+                : cloud.kind === 'replaced'
+                  ? '↻ Another device saved newer changes, so this device now shows those. Its own last changes were kept aside as a backup.'
+                  : `⚠ Couldn't reach the server: ${cloud.text}. Changes stay on this device and are saved when it's back.`}
+          </ThemedText>
+        ) : null}
         <View style={styles.row}>
           {confirmReset ? (
             <>
               <Button
-                label="Yes, delete everything"
+                label={cloud.kind === 'off' ? 'Yes, delete everything' : 'Yes, delete everything on every device'}
                 kind="danger"
                 onPress={() => {
                   resetAll();
@@ -120,7 +137,11 @@ const daysUntil = (iso: string) => Math.ceil((new Date(iso).getTime() - Date.now
 function RevolutSyncCard() {
   const theme = useTheme();
   const { config, setConfig, configured, status, busy, message, refreshStatus, connect, syncNow, lastSyncedAt } = useRevolutSync();
-  const { allState, setPersonBank } = useBudget();
+  const { allState, setPersonBank, pullCloud } = useBudget();
+  // Once the passphrase is in, start keeping the budget on the server.
+  useEffect(() => {
+    if (configured) pullCloud();
+  }, [configured, pullCloud]);
   // Everyone's bank, you first.
   const people = [...allState.people].sort((a, b) => (a.id === 'me' ? -1 : b.id === 'me' ? 1 : 0));
   const [copied, setCopied] = useState<string | null>(null);

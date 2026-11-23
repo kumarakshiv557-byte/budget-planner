@@ -8,6 +8,8 @@
 //   GET  /status    → { connected, validUntil, accounts, connections: [{ owner, bank, bankName, bic, validUntil, accounts }] }
 //                     bankName/bic come from the account's SWIFT/BIC as the bank reports it.
 //   GET  /banks     → ?country=PT { banks: [{ name, bic? }] } banks Enable Banking can connect to, for the app's picker
+//   GET  /state     → { data, version, updatedAt } the household's saved budget (data null and version 0 if none yet)
+//   PUT  /state     → { data, baseVersion } saves it if nobody saved since baseVersion; else 409 with the current copy
 //   POST /sync      → { transactions, income, transfers } booked spending and money in since body.dateFrom
 //                     (default: 90 days ago) from every connection. body.fullFor lists owners to read the full
 //                     ~90 days for (a newly connected account). Money moved between two connected accounts is
@@ -35,7 +37,7 @@ const db = createClient(env('SUPABASE_URL'), env('SUPABASE_SERVICE_ROLE_KEY'), {
 const cors = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'content-type, x-sync-secret, authorization, apikey',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS',
 };
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...cors, 'Content-Type': 'application/json' } });
@@ -246,6 +248,40 @@ async function banks(req: Request) {
   return json({ country, banks: list });
 }
 
+const STATE_ID = 'household';
+
+/** The saved budget, shared by every device. */
+async function getState() {
+  const { data, error } = await db.from('app_state').select('data, version, updated_at').eq('id', STATE_ID).maybeSingle();
+  if (error) throw error;
+  return data ? { data: data.data, version: data.version, updatedAt: data.updated_at } : { data: null, version: 0, updatedAt: null };
+}
+
+/** Save the budget, but only on top of the copy the device last saw, so two devices can't silently overwrite each other. */
+async function putState(req: Request) {
+  const text = await req.text();
+  if (text.length > 8_000_000) return json({ error: 'Budget data is too large to save.' }, 413);
+  const body = JSON.parse(text || '{}');
+  const base = Number(body.baseVersion);
+  if (!body.data || typeof body.data !== 'object' || !Number.isInteger(base) || base < 0) return json({ error: 'Send { data, baseVersion }.' }, 400);
+  const now = new Date().toISOString();
+  if (base === 0) {
+    const { data, error } = await db.from('app_state').insert({ id: STATE_ID, data: body.data, version: 1, updated_at: now }).select('version, updated_at').maybeSingle();
+    if (!error && data) return json({ version: data.version, updatedAt: data.updated_at });
+  } else {
+    const { data, error } = await db
+      .from('app_state')
+      .update({ data: body.data, version: base + 1, updated_at: now })
+      .eq('id', STATE_ID)
+      .eq('version', base)
+      .select('version, updated_at')
+      .maybeSingle();
+    if (error) throw error;
+    if (data) return json({ version: data.version, updatedAt: data.updated_at });
+  }
+  return json({ error: 'Saved from another device since; here is the newer copy.', current: await getState() }, 409);
+}
+
 /** Short, readable reason from an Enable Banking error. */
 function shortError(e: unknown) {
   const m = e instanceof Error ? e.message : String(e);
@@ -365,6 +401,8 @@ Deno.serve(async (req) => {
     if (route === 'status' && req.method === 'GET') return await status(req);
     if (route === 'banks' && req.method === 'GET') return await banks(req);
     if (route === 'sync' && req.method === 'POST') return await sync(req);
+    if (route === 'state' && req.method === 'GET') return json(await getState());
+    if (route === 'state' && req.method === 'PUT') return await putState(req);
     return json({ error: 'Not found' }, 404);
   } catch (e) {
     console.error(e);

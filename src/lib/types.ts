@@ -8,9 +8,15 @@ export type ItemType =
 export const ITEM_TYPES: { id: ItemType; label: string; hint: string }[] = [
   { id: 'recurring-fixed', label: 'Recurring, fixed', hint: 'Same amount every month (rent, Netflix)' },
   { id: 'recurring-variable', label: 'Recurring, variable', hint: 'Every month, amount changes (electricity, groceries)' },
-  { id: 'variable-one-time', label: 'One-time, variable', hint: 'Unplanned, any amount (eating out, shopping)' },
-  { id: 'fixed-one-time', label: 'One-time, fixed', hint: 'Known lump sum on a date (advance tax)' },
+  { id: 'variable-one-time', label: 'One-time', hint: 'Happens once, amount known only then (eating out, a repair)' },
+  { id: 'fixed-one-time', label: 'One-time, planned', hint: 'Happens once, amount known ahead (yearly tax, a booked flight)' },
 ];
+
+/**
+ * Types for spending lines. Once money has left the bank its amount is known, so "planned" adds nothing there:
+ * a spending line is recurring (fixed or variable) or simply one-time. "Planned" stays for budget items.
+ */
+export const LINE_TYPES = ITEM_TYPES.filter((t) => t.id !== 'fixed-one-time');
 
 export function isRecurring(type: ItemType | null) {
   return type === 'recurring-fixed' || type === 'recurring-variable';

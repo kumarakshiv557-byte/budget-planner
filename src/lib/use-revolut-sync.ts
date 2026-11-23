@@ -5,9 +5,9 @@ import { Platform } from 'react-native';
 
 import { newId } from './budget.ts';
 import { useBudget } from './store.tsx';
-import { findSyncedTransfers, mergeSynced, mergeSyncedIncome, nextDateFrom, syncApi, type SyncConfig, type SyncStatus } from './sync.ts';
+import { SYNC_CONFIG_KEY, findSyncedTransfers, mergeSynced, mergeSyncedIncome, nextDateFrom, syncApi, type SyncConfig, type SyncStatus } from './sync.ts';
 
-export const SYNC_CONFIG_KEY = 'budget-planner/sync-config/v1';
+export { SYNC_CONFIG_KEY };
 const KEY = SYNC_CONFIG_KEY;
 /** Default backend: this project's Supabase function. Can be changed in Settings. */
 export const DEFAULT_SYNC_URL =

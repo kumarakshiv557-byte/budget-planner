@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { addMonths, billsCalendar, forPerson, incomeIn, billsFor, breakdown, matchRule, recategorizeIn, resortIn, ruleFrom, sortIn, sortedAlike, subscriptionsTotal, unsortIn, moneyFlow, categorize, typeFor, summarizeMonth, trend, transferRuleFrom, markTransferIn, unmarkTransferIn } from './budget.ts';
-import { initialState, migrate } from './defaults.ts';
+import { DATA_VERSION, initialState, migrate } from './defaults.ts';
 import { parseRevolutCsv } from './revolut-csv.ts';
 import { applyTransfers, findSyncedTransfers, mergeSynced, mergeSyncedIncome } from './sync.ts';
 import type { BudgetState } from './types.ts';
@@ -241,7 +241,7 @@ test('migrate retires the Subscriptions category', () => {
   const m = migrate(old);
   assert.ok(!m.categories.some((c) => c.id === 'subscriptions'));
   assert.deepEqual([m.items[0].categoryId, m.items[0].payment], ['frivolous', 'auto']);
-  assert.equal(m.dataVersion, 3);
+  assert.equal(m.dataVersion, DATA_VERSION);
 });
 
 test('version 3 adds Work and resets every sorting pick and learned rule, once', () => {
@@ -261,7 +261,7 @@ test('version 3 adds Work and resets every sorting pick and learned rule, once',
   ]);
   assert.ok(!m.rules.some((r) => r.match === 'patreon'));
   assert.equal(m.items[0].payment, 'manual');
-  assert.equal(m.dataVersion, 3);
+  assert.equal(m.dataVersion, DATA_VERSION);
   const sorted = { ...m, transactions: m.transactions.map((t) => ({ ...t, categoryId: 'work' })) };
   assert.equal(migrate(sorted).transactions[0].categoryId, 'work');
 });
@@ -445,4 +445,26 @@ test('transfer sides that arrived on different syncs are paired', () => {
   };
   // Only the unsorted line pairs; the sorted one is left alone.
   assert.deepEqual(findSyncedTransfers(s, new Date('2026-11-25')), ['eb:santander:1', 'eb:revolut:9']);
+});
+
+test('server copy: push, adopt or keep the newer one', async () => {
+  const { decide } = await import('./cloud.ts');
+  assert.equal(decide({ version: 0, dirty: true }, 0), 'push'); // first device uploads
+  assert.equal(decide({ version: 0, dirty: false }, 4), 'adopt'); // new device takes the server copy
+  assert.equal(decide({ version: 0, dirty: true }, 4), 'conflict'); // second device with its own data: server wins, own copy kept
+  assert.equal(decide({ version: 4, dirty: true }, 4), 'push');
+  assert.equal(decide({ version: 4, dirty: false }, 4), 'none');
+  assert.equal(decide({ version: 4, dirty: false }, 6), 'adopt');
+});
+
+test('spending lines no longer use one-time fixed', () => {
+  const s = migrate({
+    dataVersion: 3,
+    transactions: [{ id: 't', date: '2026-11-01', description: 'IRS', amount: 300, categoryId: 'taxes', type: 'fixed-one-time', source: 'manual' }],
+    rules: [{ match: 'irs', categoryId: 'taxes', type: 'fixed-one-time' }],
+    items: [{ id: 'b', name: 'Yearly tax', amount: 300, categoryId: 'taxes', type: 'fixed-one-time' } as BudgetState['items'][number]],
+  });
+  assert.equal(s.transactions[0].type, 'variable-one-time');
+  assert.equal(s.rules[0].type, 'variable-one-time');
+  assert.equal(s.items[0].type, 'fixed-one-time'); // budget items keep "planned"
 });
