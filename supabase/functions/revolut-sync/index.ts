@@ -149,6 +149,8 @@ type Session = {
   owner: string;
   bank: string | null;
   valid_until: string;
+  /** When this connection was first synced; null for a new one, which then gets its full history. */
+  synced_at: string | null;
   accounts: { uid: string; currency?: string; name?: string; iban?: string | null }[];
 };
 
@@ -187,10 +189,11 @@ async function sync(req: Request) {
   const body = await req.json().catch(() => ({}));
   const full = new Date(Date.now() - 89 * 86400_000).toISOString().slice(0, 10);
   const fullFor: string[] = Array.isArray(body.fullFor) ? body.fullFor.map(ownerOf) : [];
-  // A newly connected account reads the full window, and then so do the others, so that money moved
-  // between them in that window can be paired up and left out.
+  // A newly connected account (never synced, or asked for by the app) reads the full window, and then so do
+  // the others, so that money moved between them in that window can be paired up and left out.
+  const fresh = all.some((s) => !s.synced_at && s.accounts.length > 0) || fullFor.some((o) => all.some((s) => s.owner === o));
   const dateFrom: string =
-    !fullFor.some((o) => all.some((s) => s.owner === o)) && typeof body.dateFrom === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.dateFrom)
+    !fresh && typeof body.dateFrom === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.dateFrom)
       ? body.dateFrom
       : full;
   const ownIbans = all.flatMap((s) => s.accounts.map((a) => a.iban ?? '')).filter(Boolean);
@@ -213,6 +216,8 @@ async function sync(req: Request) {
       }
     }
   }
+  const firstTime = all.filter((s) => !s.synced_at && s.accounts.length > 0).map((s) => s.session_id);
+  if (firstTime.length) await db.from('eb_sessions').update({ synced_at: new Date().toISOString() }).in('session_id', firstTime);
   const transfers = findTransfers(spending, income);
   const skip = new Set(transfers);
   const me = all.find((s) => s.owner === 'me') ?? all[0];
