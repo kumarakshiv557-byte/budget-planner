@@ -124,11 +124,12 @@ function RevolutSyncCard() {
   const others = allState.people.filter((p) => p.id !== 'me');
   const [copied, setCopied] = useState<string | null>(null);
   // Saved with the household data, so the same bank is used on every screen and after a restart.
+  // Until a bank is typed here, show the one they're already connected with.
+  const connectionOf = (id: string) => status?.connections?.find((c) => c.owner === id);
   const bankOf = (id: string) => {
     const p = allState.people.find((x) => x.id === id);
-    return { bank: p?.bank ?? 'Revolut', country: p?.country ?? 'PT' };
+    return { bank: p?.bank ?? connectionOf(id)?.bank ?? 'Revolut', country: p?.country ?? 'PT' };
   };
-  const connectionOf = (id: string) => status?.connections?.find((c) => c.owner === id);
   const fmt = (iso: string) => new Date(iso).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' });
   const daysLeft = status?.validUntil ? Math.ceil((new Date(status.validUntil).getTime() - Date.now()) / 86400_000) : null;
 

@@ -9,7 +9,8 @@
 //   POST /sync      → { transactions, income, transfers } booked spending and money in since body.dateFrom
 //                     (default: 90 days ago) from every connection. body.fullFor lists owners to read the full
 //                     ~90 days for (a newly connected account). Money moved between two connected accounts is
-//                     left out of both lists, and its rows' ids are returned in `transfers`.
+//                     left out of both lists, and its rows' ids are returned in `transfers`. A connection the bank
+//                     won't read is skipped and listed in `problems`; the others still sync.
 //
 // Each connection belongs to an owner ("me", "wife", …): the household's people, as named in the app.
 //
@@ -183,6 +184,49 @@ async function status() {
   });
 }
 
+/** Short, readable reason from an Enable Banking error. */
+function shortError(e: unknown) {
+  const m = e instanceof Error ? e.message : String(e);
+  const detail = /"message":"([^"]+)"/.exec(m)?.[1];
+  return detail ? `the bank answered "${detail}"` : m.slice(0, 200);
+}
+
+/**
+ * All booked rows of one account since dateFrom. Some banks (Santander Totta, for one) refuse older history a
+ * while after the person approved access, with a vague ASPSP_ERROR. Then try again with shorter windows,
+ * so recent lines still come in. Returns the date it could read from.
+ */
+async function readAccount(uid: string, dateFrom: string, ownIbans: string[]) {
+  const today = Date.now();
+  const back = (days: number) => new Date(today - days * 86400_000).toISOString().slice(0, 10);
+  const windows = [dateFrom, ...[60, 30, 14, 7].map(back).filter((d) => d > dateFrom)];
+  let last: unknown;
+  for (const from of windows) {
+    try {
+      const spending: SyncedTransaction[] = [];
+      const income: SyncedTransaction[] = [];
+      let key: string | undefined;
+      for (let page = 0; page < 50; page++) {
+        const q = new URLSearchParams({ date_from: from });
+        if (key) q.set('continuation_key', key);
+        const r = await eb<{ transactions: EbTransaction[]; continuation_key?: string | null }>(`/accounts/${uid}/transactions?${q}`);
+        const n = normalizeRows(uid, r.transactions ?? [], ownIbans);
+        spending.push(...n.spending);
+        income.push(...n.income);
+        key = r.continuation_key ?? undefined;
+        if (!key) break;
+      }
+      if (from !== dateFrom) console.log(`sync: account ${uid} refused ${dateFrom}, read from ${from}`);
+      return { spending, income, from };
+    } catch (e) {
+      last = e;
+      // Only a bank-side error is worth retrying with less history; anything else (expired access…) won't change.
+      if (!String(e instanceof Error ? e.message : e).includes('ASPSP_ERROR')) break;
+    }
+  }
+  throw last;
+}
+
 async function sync(req: Request) {
   const all = await liveSessions();
   if (!all.length) return json({ error: 'No bank is connected, or the consent has expired. Connect again from Settings.' }, 409);
@@ -200,24 +244,31 @@ async function sync(req: Request) {
 
   const spending: SyncedTransaction[] = [];
   const income: SyncedTransaction[] = [];
+  /** Connections the bank wouldn't let us read; the rest still sync. */
+  const problems: { owner: string; bank: string; message: string }[] = [];
+  const readOwners = new Set<string>();
+  const readSessions: string[] = [];
   for (const s of all) {
+    let ok = s.accounts.length > 0;
     for (const acc of s.accounts) {
-      let key: string | undefined;
-      for (let page = 0; page < 50; page++) {
-        const q = new URLSearchParams({ date_from: dateFrom });
-        if (key) q.set('continuation_key', key);
-        const r = await eb<{ transactions: EbTransaction[]; continuation_key?: string | null }>(`/accounts/${acc.uid}/transactions?${q}`);
-        const n = normalizeRows(acc.uid, r.transactions ?? [], ownIbans);
+      try {
+        const got = await readAccount(acc.uid, dateFrom, ownIbans);
         const tag = (x: SyncedTransaction) => (s.owner === 'me' ? x : { ...x, owner: s.owner });
-        spending.push(...n.spending.map(tag));
-        income.push(...n.income.map(tag));
-        key = r.continuation_key ?? undefined;
-        if (!key) break;
+        spending.push(...got.spending.map(tag));
+        income.push(...got.income.map(tag));
+        if (got.from !== dateFrom) problems.push({ owner: s.owner, bank: s.bank ?? 'Revolut', message: `only gave history from ${got.from}` });
+      } catch (e) {
+        ok = false;
+        console.error(`sync: ${s.owner} account ${acc.uid} failed`, e);
+        problems.push({ owner: s.owner, bank: s.bank ?? 'Revolut', message: shortError(e) });
       }
     }
+    if (ok) {
+      readOwners.add(s.owner);
+      if (!s.synced_at) readSessions.push(s.session_id);
+    }
   }
-  const firstTime = all.filter((s) => !s.synced_at && s.accounts.length > 0).map((s) => s.session_id);
-  if (firstTime.length) await db.from('eb_sessions').update({ synced_at: new Date().toISOString() }).in('session_id', firstTime);
+  if (readSessions.length) await db.from('eb_sessions').update({ synced_at: new Date().toISOString() }).in('session_id', readSessions);
   const transfers = findTransfers(spending, income);
   const skip = new Set(transfers);
   const me = all.find((s) => s.owner === 'me') ?? all[0];
@@ -225,7 +276,8 @@ async function sync(req: Request) {
     transactions: spending.filter((t) => !skip.has(t.externalId)),
     income: income.filter((t) => !skip.has(t.externalId)),
     transfers,
-    owners: all.map((s) => s.owner),
+    owners: all.map((s) => s.owner).filter((o) => readOwners.has(o)),
+    problems,
     validUntil: me.valid_until,
     dateFrom,
   });
