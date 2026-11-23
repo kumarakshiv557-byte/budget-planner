@@ -3,7 +3,7 @@ import { Pressable, View } from 'react-native';
 
 import { Sankey } from '@/components/sankey';
 import { ThemedText } from '@/components/themed-text';
-import { Card, useCategoryColor, useCategoryLabel, useIsDark, useMoney } from '@/components/ui';
+import { Card, useCategoryColor, useCategoryLabel, useIsDark, useMoney, WhoseFilter } from '@/components/ui';
 import { Spacing, TypeColors } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { OTHER_INCOME, incomeIn, monthLabel, moneyFlow, transactionsIn, type FlowNode } from '@/lib/budget';
@@ -117,7 +117,8 @@ export function MoneyFlowCard({ month }: { month: Month }) {
   return (
     <Card
       title="Where your income went"
-      subtitle={`${monthLabel(month)}: income on the left, then categories (subscriptions as one block), then types. Tap a block to see what's in it; in a category, tap a subcategory to see its payments.`}>
+      subtitle={`${monthLabel(month)}: income on the left, then categories (subscriptions as one block), then types. Pick whose accounts to show. Tap a block to see what's in it; in a category, tap a subcategory to see its payments.`}>
+      <WhoseFilter />
       {flow.nodes.length === 0 ? (
         <ThemedText type="small" themeColor="textSecondary">
           No income or spending recorded for this month yet.
