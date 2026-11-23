@@ -482,3 +482,16 @@ test('recently sorted lists hand-sorted and fixed lines newest first', () => {
   assert.equal(s.transactions.find((t) => t.id === 'b')?.sortedAt, undefined);
   assert.deepEqual(recentlySorted(s.transactions).map((t) => t.id), ['a', 'old']);
 });
+
+test('bank details are added to lines that lack them, never overwritten', async () => {
+  const { detailsFor } = await import('./sync.ts');
+  const s: BudgetState = { ...initialState(), transactions: [
+    { id: '1', date: '2026-11-01', description: 'A', amount: 1, categoryId: null, type: 'variable-one-time', source: 'revolut', externalId: 'eb:x:1' },
+    { id: '2', date: '2026-11-01', description: 'B', amount: 1, categoryId: null, type: 'variable-one-time', source: 'revolut', externalId: 'eb:x:2', details: { kind: 'Old' } },
+  ] };
+  const rows = [
+    { externalId: 'eb:x:1', date: '2026-11-01', description: 'A', amount: 1, currency: 'EUR', details: { kind: 'Card payment' } },
+    { externalId: 'eb:x:2', date: '2026-11-01', description: 'B', amount: 1, currency: 'EUR', details: { kind: 'New' } },
+  ];
+  assert.deepEqual(detailsFor(s, rows), { 'eb:x:1': { kind: 'Card payment' } });
+});

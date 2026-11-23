@@ -1,5 +1,5 @@
 import { Fragment, useState } from 'react';
-import { Platform, Pressable, View } from 'react-native';
+import { Linking, Platform, Pressable, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import {
@@ -28,7 +28,7 @@ import { downloadCalendar } from '@/lib/calendar-file';
 import { parseRevolutCsv } from '@/lib/revolut-csv';
 import { pickCsvText } from '@/lib/pick-file';
 import { useBudget } from '@/lib/store';
-import { ITEM_TYPES, LINE_TYPES, PAYMENTS, isRecurring, type BudgetItem, type ItemType, type Payment, type Transaction } from '@/lib/types';
+import { ITEM_TYPES, LINE_TYPES, PAYMENTS, isRecurring, type BudgetItem, type ItemType, type Payment, type Transaction, type TxDetails } from '@/lib/types';
 
 type Draft = { id?: string; date: string; description: string; amount: string; categoryId: string | null; subcategoryId?: string; type: ItemType; payment?: Payment; note?: string; remark?: string; owner?: string };
 
@@ -51,6 +51,50 @@ const sortedWhen = (iso: string) => {
   const sameDay = d.toDateString() === new Date().toDateString();
   return `Sorted ${sameDay ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : d.toLocaleDateString([], { day: 'numeric', month: 'short' })}`;
 };
+
+/** The bank's extra facts about a line, folded away behind a small "Details" toggle. */
+function BankDetails({ d, name }: { d?: TxDetails; name: string }) {
+  const [open, setOpen] = useState(false);
+  const rows: [string, string | undefined][] = [
+    ['Paid by', d?.kind],
+    ['Business', d?.merchantType],
+    ['Where', d?.place],
+    ['Card used', d?.usedOn],
+    ['Original amount', d?.foreign],
+    ['Reference', d?.reference],
+  ];
+  const shown = rows.filter((r): r is [string, string] => !!r[1]);
+  const peek = [d?.kind, d?.merchantType].filter(Boolean).join(' · ');
+  // Banks don't share where a card was used, so offer a map search for the merchant (and town, when known).
+  const query = [name.replace(/^[a-z]{2,6}\s*\*\s*/i, ''), d?.place].filter(Boolean).join(' ');
+  const mapUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
+  return (
+    <View style={{ gap: 2 }}>
+      <Pressable onPress={() => setOpen(!open)} accessibilityRole="button" accessibilityState={{ expanded: open }} hitSlop={6}>
+        <ThemedText type="small" themeColor="textSecondary">
+          {open ? '▾' : '▸'} Details{!open && peek ? ` · ${peek}` : ''}
+        </ThemedText>
+      </Pressable>
+      {open
+        ? shown.map(([k, v]) => (
+            <ThemedText key={k} type="small" style={{ paddingLeft: Spacing.three }}>
+              <ThemedText type="small" themeColor="textSecondary">
+                {k}:{' '}
+              </ThemedText>
+              {v}
+            </ThemedText>
+          ))
+        : null}
+      {open ? (
+        <Pressable onPress={() => Linking.openURL(mapUrl)} accessibilityRole="link" style={{ paddingLeft: Spacing.three }} hitSlop={6}>
+          <ThemedText type="small" themeColor="accent">
+            📍 Find on map
+          </ThemedText>
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
 
 export default function SpendingScreen() {
   const { state, allState, whose, saveTransaction, resortTransaction, unsortTransaction, deleteTransaction, addTransactions, sortTransaction, markTransfer, undoTransfer, saveItem, addIncome, saveIncome, deleteIncome } = useBudget();
@@ -273,7 +317,7 @@ export default function SpendingScreen() {
                     </ThemedText>
                   ) : null}
                 </View>
-                <ThemedText type="small">{money(t.amount)}</ThemedText>
+                <ThemedText type="small">{money(t.amount, true)}</ThemedText>
               </Pressable>
               {draft?.id === t.id && editIn === where ? <View style={{ paddingBottom: Spacing.two }}>{draftForm}</View> : null}
               </Fragment>
@@ -283,6 +327,7 @@ export default function SpendingScreen() {
   // Editing opens right under the tapped line; a new entry opens at the top.
   const draftForm = draft ? (
       <Card title={draft.id ? 'Edit spending' : 'New spending'}>
+        {editing ? <BankDetails d={editing.details} name={editing.description} /> : null}
         <View style={styles.row}>
           <Field label="What" value={draft.description} onChangeText={(description) => setDraft({ ...draft, description })} placeholder="e.g. Groceries" />
           <Field
@@ -470,8 +515,9 @@ export default function SpendingScreen() {
                 <ThemedText type="small" style={{ flex: 1 }}>
                   {t.description} · {t.date.slice(8)} {monthLabel(month, 'short')}
                 </ThemedText>
-                <ThemedText type="smallBold">{money(t.amount)}</ThemedText>
+                <ThemedText type="smallBold">{money(t.amount, true)}</ThemedText>
               </View>
+              <BankDetails d={t.details} name={t.description} />
               <Field
                 label="What's it for? (optional)"
                 value={picks[t.id]?.note ?? ''}

@@ -39,7 +39,7 @@ type Actions = {
    * bank rows of money moved between the household's accounts: they are taken out and never imported.
    * `owners` are whose connections were read.
    */
-  applySync: (ts: Transaction[], at: string, income?: Income[], transfers?: string[], owners?: string[]) => void;
+  applySync: (ts: Transaction[], at: string, income?: Income[], transfers?: string[], owners?: string[], details?: Record<string, NonNullable<Transaction['details']>>) => void;
   saveIncome: (i: Omit<Income, 'id'> & { id?: string }) => void;
   deleteIncome: (id: string) => void;
   addIncome: (list: Income[]) => void;
@@ -237,12 +237,16 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
       unsortTransaction: (id, alsoOthers) => update((s) => unsortIn(s, id, alsoOthers)),
       deleteTransaction: (id) => update((s) => ({ ...s, transactions: s.transactions.filter((t) => t.id !== id) })),
       addTransactions: (ts) => update((s) => ({ ...s, transactions: [...s.transactions, ...ts] })),
-      applySync: (ts, at, income, transfers = [], owners) =>
+      applySync: (ts, at, income, transfers = [], owners, details) =>
         update((s) => {
+          const withDetails = details
+            ? s.transactions.map((t) => (t.externalId && details[t.externalId] && !t.details ? { ...t, details: details[t.externalId] } : t))
+            : s.transactions;
           const next = {
             ...s,
             lastSyncedAt: at,
-            transactions: [...s.transactions, ...ts],
+            ...(details ? { detailsBackfilled: true } : {}),
+            transactions: [...withDetails, ...ts],
             ...(income ? { income: [...s.income, ...income], incomeBackfilled: true } : {}),
             ...(owners ? { syncedOwners: [...new Set([...(s.syncedOwners ?? []), ...owners])] } : {}),
           };

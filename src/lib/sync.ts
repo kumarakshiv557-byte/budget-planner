@@ -24,10 +24,19 @@ export function mergeSynced(state: BudgetState, rows: SyncedTransaction[], idFor
       ...(rule?.payment ? { payment: rule.payment } : {}),
       ...(rule?.note ? { note: rule.note } : {}),
       ...(r.owner && r.owner !== 'me' ? { owner: r.owner } : {}),
+      ...(r.details ? { details: r.details } : {}),
       source: 'revolut',
       externalId: r.externalId,
     });
   }
+  return out;
+}
+
+/** Bank details for lines already here that don't have them yet, by externalId. */
+export function detailsFor(state: BudgetState, rows: SyncedTransaction[]): Record<string, NonNullable<Transaction['details']>> {
+  const missing = new Set(state.transactions.filter((t) => t.externalId && !t.details).map((t) => t.externalId!));
+  const out: Record<string, NonNullable<Transaction['details']>> = {};
+  for (const r of rows) if (r.details && missing.has(r.externalId)) out[r.externalId] = r.details;
   return out;
 }
 
