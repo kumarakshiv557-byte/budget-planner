@@ -495,3 +495,21 @@ test('bank details are added to lines that lack them, never overwritten', async 
   ];
   assert.deepEqual(detailsFor(s, rows), { 'eb:x:1': { kind: 'Card payment' } });
 });
+
+test('money flow over several months adds up income and spending', async () => {
+  const { monthsBetween, rangeLabel } = await import('./budget.ts');
+  assert.deepEqual(monthsBetween('2026-11', '2026-09'), ['2026-09', '2026-10', '2026-11']);
+  assert.equal(rangeLabel(['2026-06', '2026-11']), 'Jun – Nov 2026');
+  const s: BudgetState = { ...initialState(), items: [], income: [
+    { id: 'i1', date: '2026-10-01', description: 'Salary', amount: 1000, source: 'manual' },
+    { id: 'i2', date: '2026-11-01', description: 'Salary', amount: 1000, source: 'manual' },
+  ], transactions: [
+    { id: 't1', date: '2026-10-05', description: 'Lidl', amount: 100, categoryId: 'essentials', type: 'variable-one-time', source: 'manual' },
+    { id: 't2', date: '2026-11-05', description: 'Lidl', amount: 50, categoryId: 'essentials', type: 'variable-one-time', source: 'manual' },
+    { id: 't3', date: '2026-08-05', description: 'Old', amount: 999, categoryId: 'essentials', type: 'variable-one-time', source: 'manual' },
+  ] };
+  const f = moneyFlow(s, monthsBetween('2026-10', '2026-11'));
+  assert.equal(f.income, 2000);
+  assert.equal(f.spent, 150);
+  assert.equal(moneyFlow(s, '2026-11').spent, 50);
+});

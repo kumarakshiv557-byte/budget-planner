@@ -60,6 +60,34 @@ export function incomeIn(income: Income[], month: Month): Income[] {
   });
 }
 
+/** Every month from `from` to `to`, inclusive (in order, whichever is given first). */
+export function monthsBetween(from: Month, to: Month): Month[] {
+  const [a, b] = from <= to ? [from, to] : [to, from];
+  const out: Month[] = [];
+  for (let m = a; m <= b && out.length < 240; m = addMonths(m, 1)) out.push(m);
+  return out;
+}
+
+/** "Nov 2026", or "Jun – Nov 2026" / "Dec 2025 – Nov 2026" for a range. */
+export function rangeLabel(months: Month[]) {
+  if (months.length <= 1) return monthLabel(months[0] ?? '', 'long');
+  const first = months[0];
+  const last = months[months.length - 1];
+  const short = (m: Month) => monthLabel(m, 'short');
+  return first.slice(0, 4) === last.slice(0, 4) ? `${short(first)} – ${short(last)} ${last.slice(0, 4)}` : `${short(first)} ${first.slice(0, 4)} – ${short(last)} ${last.slice(0, 4)}`;
+}
+
+/** Income across several months (see incomeIn). */
+export function incomeInMonths(income: Income[], months: Month[]): Income[] {
+  return months.flatMap((m) => incomeIn(income, m));
+}
+
+/** Transactions across several months. */
+export function transactionsInMonths<T extends { date: string }>(transactions: T[], months: Month[]): T[] {
+  const set = new Set(months);
+  return transactions.filter((t) => set.has(monthOf(t.date)));
+}
+
 /** The household's data as one person sees it ("all" = everyone). Plans with no owner belong to "me". */
 export function forPerson(state: BudgetState, whose: string): BudgetState {
   if (whose === 'all') return state;
@@ -239,12 +267,14 @@ export type FlowLink = { source: string; target: string; value: number };
  * If spending is more than income, a "gap" source covers the difference (savings or untracked money).
  * Refunds can make a category negative; those are left out of the flow.
  */
-export function moneyFlow(state: BudgetState, month: Month, maxSources = 5) {
+export function moneyFlow(state: BudgetState, period: Month | Month[], maxSources = 5) {
+  const months = Array.isArray(period) ? period : [period];
+  const month = months[months.length - 1];
   const nodes: FlowNode[] = [];
   const links: FlowLink[] = [];
 
   const bySource = new Map<string, { label: string; value: number }>();
-  for (const i of incomeIn(state.income ?? [], month)) {
+  for (const i of incomeInMonths(state.income ?? [], months)) {
     const k = i.description.trim().toLowerCase();
     const g = bySource.get(k) ?? { label: i.description.trim(), value: 0 };
     g.value += i.amount;
@@ -259,8 +289,8 @@ export function moneyFlow(state: BudgetState, month: Month, maxSources = 5) {
   const cat = new Map<string, number>();
   const catType = new Map<string, Map<ItemType, number>>();
   // Subscriptions are one block of their own, not split into categories and types.
-  const subs = Math.max(0, subscriptionsTotal(state, month, 'actual'));
-  for (const t of transactionsIn(state.transactions, month)) {
+  const subs = Math.max(0, round2(months.reduce((s, m) => s + subscriptionsTotal(state, m, 'actual'), 0)));
+  for (const t of transactionsInMonths(state.transactions, months)) {
     if (isSubscription(t)) continue;
     const c = t.categoryId ?? 'none';
     cat.set(c, (cat.get(c) ?? 0) + t.amount);
