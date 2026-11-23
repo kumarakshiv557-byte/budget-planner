@@ -76,6 +76,8 @@ export type Transaction = {
   payment?: Payment;
   /** Your own note on what it was for, e.g. "Mum's birthday gift". Remembered per merchant. */
   note?: string;
+  /** A one-off remark on this payment only. Never remembered or copied to other payments. */
+  remark?: string;
   source: TransactionSource;
   /** Bank/CSV reference used to skip duplicates on re-import. */
   externalId?: string;
