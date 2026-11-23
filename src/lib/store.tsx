@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
-import { forPerson, newId, recategorizeIn, resortIn, ruleFrom, sortIn, unsortIn, type SortPick } from './budget.ts';
+import { forPerson, markTransferIn, newId, recategorizeIn, resortIn, ruleFrom, sortIn, unmarkTransferIn, unsortIn, type SortPick } from './budget.ts';
 import { initialState, migrate } from './defaults.ts';
 import { applyTransfers } from './sync.ts';
 import type { BudgetItem, BudgetState, Category, Income, Transaction } from './types.ts';
@@ -34,6 +34,9 @@ type Actions = {
   recategorize: (id: string, categoryId: string, learn: boolean, subcategoryId?: string) => void;
   /** Sort a payment from "to sort": category plus type (and payment tag). */
   sortTransaction: (id: string, pick: SortPick, learn: boolean) => void;
+  /** Take a payment out because it only moved money between your own accounts (with `learn`, remember it). */
+  markTransfer: (id: string, learn: boolean) => void;
+  undoTransfer: (removed: Transaction[], rule?: string) => void;
   addSubcategory: (categoryId: string, name: string) => void;
   renameSubcategory: (id: string, name: string) => void;
   deleteSubcategory: (id: string) => void;
@@ -153,6 +156,8 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
       addIncome: (list) => update((s) => ({ ...s, income: [...s.income, ...list] })),
       recategorize: (id, categoryId, learn, subcategoryId) => update((s) => recategorizeIn(s, id, categoryId, subcategoryId, learn)),
       sortTransaction: (id, pick, learn) => update((s) => sortIn(s, id, pick, learn)),
+      markTransfer: (id, learn) => update((s) => markTransferIn(s, id, learn)),
+      undoTransfer: (removed, rule) => update((s) => unmarkTransferIn(s, removed, rule)),
       addSubcategory: (categoryId, name) =>
         update((s) => ({ ...s, subcategories: [...s.subcategories, { id: newId(), categoryId, name: name.trim() }] })),
       renameSubcategory: (id, name) =>

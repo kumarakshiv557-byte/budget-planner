@@ -188,43 +188,49 @@ async function status() {
 function shortError(e: unknown) {
   const m = e instanceof Error ? e.message : String(e);
   const detail = /"message":"([^"]+)"/.exec(m)?.[1];
+  if (/ASPSP_RATE_LIMIT|ASPSP_ERROR/.test(m)) return `the bank refused to share data just now ("${detail ?? 'error'}"). It usually works again after a few hours`;
   return detail ? `the bank answered "${detail}"` : m.slice(0, 200);
 }
 
 /**
- * All booked rows of one account since dateFrom. Some banks (Santander Totta, for one) refuse older history a
- * while after the person approved access, with a vague ASPSP_ERROR. Then try again with shorter windows,
- * so recent lines still come in. Returns the date it could read from.
+ * Headers telling the bank the person is using the app right now. Without them many banks (Santander Totta among
+ * them) allow only about 4 reads a day per account, then refuse with an error until the next day.
  */
-async function readAccount(uid: string, dateFrom: string, ownIbans: string[]) {
-  const today = Date.now();
-  const back = (days: number) => new Date(today - days * 86400_000).toISOString().slice(0, 10);
-  const windows = [dateFrom, ...[60, 30, 14, 7].map(back).filter((d) => d > dateFrom)];
-  let last: unknown;
-  for (const from of windows) {
-    try {
-      const spending: SyncedTransaction[] = [];
-      const income: SyncedTransaction[] = [];
-      let key: string | undefined;
-      for (let page = 0; page < 50; page++) {
-        const q = new URLSearchParams({ date_from: from });
-        if (key) q.set('continuation_key', key);
-        const r = await eb<{ transactions: EbTransaction[]; continuation_key?: string | null }>(`/accounts/${uid}/transactions?${q}`);
-        const n = normalizeRows(uid, r.transactions ?? [], ownIbans);
-        spending.push(...n.spending);
-        income.push(...n.income);
-        key = r.continuation_key ?? undefined;
-        if (!key) break;
-      }
-      if (from !== dateFrom) console.log(`sync: account ${uid} refused ${dateFrom}, read from ${from}`);
-      return { spending, income, from };
-    } catch (e) {
-      last = e;
-      // Only a bank-side error is worth retrying with less history; anything else (expired access…) won't change.
-      if (!String(e instanceof Error ? e.message : e).includes('ASPSP_ERROR')) break;
+function psuHeaders(req: Request): Record<string, string> {
+  const ip = (req.headers.get('x-forwarded-for') ?? '').split(',')[0].trim() || req.headers.get('x-real-ip') || '';
+  const ua = req.headers.get('user-agent') ?? '';
+  return {
+    ...(ip ? { 'Psu-Ip-Address': ip } : {}),
+    ...(ua ? { 'Psu-User-Agent': ua.slice(0, 300) } : {}),
+    ...(ip || ua ? { 'Psu-Accept': 'application/json', 'Psu-Accept-Language': req.headers.get('accept-language')?.slice(0, 100) || 'en' } : {}),
+  };
+}
+
+/** All booked rows of one account since dateFrom. */
+async function readAccount(uid: string, dateFrom: string, ownIbans: string[], psu: Record<string, string>) {
+  const read = async (headers: Record<string, string>) => {
+    const spending: SyncedTransaction[] = [];
+    const income: SyncedTransaction[] = [];
+    let key: string | undefined;
+    for (let page = 0; page < 50; page++) {
+      const q = new URLSearchParams({ date_from: dateFrom });
+      if (key) q.set('continuation_key', key);
+      const r = await eb<{ transactions: EbTransaction[]; continuation_key?: string | null }>(`/accounts/${uid}/transactions?${q}`, { headers });
+      const n = normalizeRows(uid, r.transactions ?? [], ownIbans);
+      spending.push(...n.spending);
+      income.push(...n.income);
+      key = r.continuation_key ?? undefined;
+      if (!key) break;
     }
+    return { spending, income };
+  };
+  try {
+    return await read(psu);
+  } catch (e) {
+    // A bank that wants more of these headers than we can give refuses them all; then read as a background fetch.
+    if (Object.keys(psu).length && /PSU_HEADER/.test(e instanceof Error ? e.message : String(e))) return await read({});
+    throw e;
   }
-  throw last;
 }
 
 async function sync(req: Request) {
@@ -241,6 +247,7 @@ async function sync(req: Request) {
       ? body.dateFrom
       : full;
   const ownIbans = all.flatMap((s) => s.accounts.map((a) => a.iban ?? '')).filter(Boolean);
+  const psu = psuHeaders(req);
 
   const spending: SyncedTransaction[] = [];
   const income: SyncedTransaction[] = [];
@@ -252,11 +259,10 @@ async function sync(req: Request) {
     let ok = s.accounts.length > 0;
     for (const acc of s.accounts) {
       try {
-        const got = await readAccount(acc.uid, dateFrom, ownIbans);
+        const got = await readAccount(acc.uid, dateFrom, ownIbans, psu);
         const tag = (x: SyncedTransaction) => (s.owner === 'me' ? x : { ...x, owner: s.owner });
         spending.push(...got.spending.map(tag));
         income.push(...got.income.map(tag));
-        if (got.from !== dateFrom) problems.push({ owner: s.owner, bank: s.bank ?? 'Revolut', message: `only gave history from ${got.from}` });
       } catch (e) {
         ok = false;
         console.error(`sync: ${s.owner} account ${acc.uid} failed`, e);

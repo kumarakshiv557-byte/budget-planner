@@ -5,7 +5,7 @@ import { Platform } from 'react-native';
 
 import { newId } from './budget.ts';
 import { useBudget } from './store.tsx';
-import { mergeSynced, mergeSyncedIncome, nextDateFrom, syncApi, type SyncConfig, type SyncStatus } from './sync.ts';
+import { findSyncedTransfers, mergeSynced, mergeSyncedIncome, nextDateFrom, syncApi, type SyncConfig, type SyncStatus } from './sync.ts';
 
 export const SYNC_CONFIG_KEY = 'budget-planner/sync-config/v1';
 const KEY = SYNC_CONFIG_KEY;
@@ -85,7 +85,9 @@ export function useRevolutSync() {
         const res = await syncApi.sync(config, s.incomeBackfilled ? nextDateFrom(s.lastSyncedAt) : undefined, fullFor);
         const added = mergeSynced(s, res.transactions, newId);
         const income = res.income ? mergeSyncedIncome(s, res.income, newId) : undefined;
-        const transfers = res.transfers ?? [];
+        // Also pair up the two sides of a transfer that arrived on different syncs.
+        const merged = { ...s, transactions: [...s.transactions, ...added], income: [...s.income, ...(income ?? [])] };
+        const transfers = [...new Set([...(res.transfers ?? []), ...findSyncedTransfers(merged)])];
         const known = new Set([...s.transactions, ...s.income].map((t) => t.externalId).filter(Boolean));
         const removed = transfers.filter((id) => known.has(id)).length;
         applySync(added, new Date().toISOString(), income, transfers, res.owners ?? ['me']);

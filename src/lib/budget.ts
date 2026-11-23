@@ -116,7 +116,7 @@ export function trend(state: BudgetState, end: Month, count = 6): MonthSummary[]
  */
 /** The longest rule whose text appears in the description. */
 export function matchRule(description: string, rules: BudgetState['rules']) {
-  const d = ` ${description.toLowerCase()} `;
+  const d = ` ${description.toLowerCase().replace(/\s+/g, ' ')} `;
   let best: BudgetState['rules'][number] | null = null;
   for (const r of rules) {
     const m = r.match.toLowerCase();
@@ -535,4 +535,54 @@ export function unsortIn(s: BudgetState, id: string, alsoOthers: boolean): Budge
   if (!t) return s;
   const { subcategoryId: _s, payment: _p, ...rest } = t;
   return resortIn(s, { ...rest, categoryId: null, type: 'variable-one-time' }, alsoOthers);
+}
+
+/**
+ * What to remember about a payment marked as a transfer between your own accounts: the person it went to,
+ * where the bank names one ("TRF.IMED.  P/ Akshiv Kumar-E41057871" gives "p/ akshiv kumar"), else the
+ * description without its numbers.
+ */
+export function transferRuleFrom(description: string) {
+  const d = description.toLowerCase().replace(/\s+/g, ' ').trim();
+  const to = /(?:^| )p\/ ?([^\d\-–,;]+)/.exec(d)?.[1]?.trim();
+  if (to) return `p/ ${to}`;
+  return d.replace(/[0-9#]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+/** True when a bank description matches a payment you marked as a transfer. */
+export function isTransferLine(description: string, rules: string[] = []) {
+  const d = ` ${description.toLowerCase().replace(/\s+/g, ' ')} `;
+  return rules.some((r) => r !== '' && d.includes(r));
+}
+
+/**
+ * Take a payment out of spending because it only moved money between your own accounts. With `learn`, remember
+ * it, so other unsorted payments like it go too and future ones are never imported.
+ */
+export function markTransferIn(s: BudgetState, id: string, learn: boolean): BudgetState {
+  const t = s.transactions.find((x) => x.id === id);
+  if (!t) return s;
+  const rule = learn ? transferRuleFrom(t.description) : '';
+  const rules = s.transferRules ?? [];
+  const gone = s.transactions.filter((x) => x.id === id || (rule && !x.categoryId && isTransferLine(x.description, [rule])));
+  const ids = new Set(gone.map((x) => x.id));
+  const ext = gone.map((x) => x.externalId).filter((x): x is string => !!x);
+  return {
+    ...s,
+    transactions: s.transactions.filter((x) => !ids.has(x.id)),
+    transferIds: [...new Set([...(s.transferIds ?? []), ...ext])].slice(-2000),
+    ...(rule ? { transferRules: rules.includes(rule) ? rules : [...rules, rule] } : {}),
+  };
+}
+
+/** Undo markTransferIn: put the payments back and forget the rule it learned. */
+export function unmarkTransferIn(s: BudgetState, removed: Transaction[], rule?: string): BudgetState {
+  const ext = new Set(removed.map((x) => x.externalId).filter(Boolean));
+  const have = new Set(s.transactions.map((x) => x.id));
+  return {
+    ...s,
+    transactions: [...s.transactions, ...removed.filter((x) => !have.has(x.id))],
+    transferIds: (s.transferIds ?? []).filter((x) => !ext.has(x)),
+    ...(rule ? { transferRules: (s.transferRules ?? []).filter((r) => r !== rule) } : {}),
+  };
 }

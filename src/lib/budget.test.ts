@@ -2,10 +2,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { addMonths, billsCalendar, forPerson, incomeIn, billsFor, breakdown, matchRule, recategorizeIn, resortIn, ruleFrom, sortIn, sortedAlike, subscriptionsTotal, unsortIn, moneyFlow, categorize, typeFor, summarizeMonth, trend } from './budget.ts';
+import { addMonths, billsCalendar, forPerson, incomeIn, billsFor, breakdown, matchRule, recategorizeIn, resortIn, ruleFrom, sortIn, sortedAlike, subscriptionsTotal, unsortIn, moneyFlow, categorize, typeFor, summarizeMonth, trend, transferRuleFrom, markTransferIn, unmarkTransferIn } from './budget.ts';
 import { initialState, migrate } from './defaults.ts';
 import { parseRevolutCsv } from './revolut-csv.ts';
-import { applyTransfers, mergeSynced, mergeSyncedIncome } from './sync.ts';
+import { applyTransfers, findSyncedTransfers, mergeSynced, mergeSyncedIncome } from './sync.ts';
 import type { BudgetState } from './types.ts';
 
 let n = 0;
@@ -408,4 +408,41 @@ test('sync: transfers between your accounts are taken out and never come back; l
   const added = mergeSynced(next, rows, id);
   assert.deepEqual(added.map((t) => [t.description, t.owner]), [['Pingo Doce', 'wife']]);
   assert.deepEqual(mergeSyncedIncome(next, rows, id).map((t) => t.description), ['Pingo Doce']);
+});
+
+test('a payment marked as a transfer is left out, remembered and can be undone', () => {
+  assert.equal(transferRuleFrom('TRF.IMED.  P/ Akshiv Kumar-E41057871'), 'p/ akshiv kumar');
+  assert.equal(transferRuleFrom('To Savings 123'), 'to savings');
+  const tx = (id: string, description: string, extra = {}) =>
+    ({ id, date: '2026-11-23', description, amount: 50, categoryId: null, type: 'variable-one-time' as const, source: 'revolut' as const, externalId: `eb:w:${id}`, owner: 'wife', ...extra });
+  const s: BudgetState = {
+    ...initialState(),
+    transactions: [tx('a', 'TRF.IMED.  P/ Akshiv Kumar-E41057871'), tx('b', 'TRF.IMED. P/ Akshiv Kumar-E4999'), tx('c', 'COMPRA VECC VETERINARY')],
+  };
+  const out = markTransferIn(s, 'a', true);
+  assert.deepEqual(out.transactions.map((t) => t.id), ['c']);
+  assert.deepEqual(out.transferIds, ['eb:w:a', 'eb:w:b']);
+  assert.deepEqual(out.transferRules, ['p/ akshiv kumar']);
+  // Future syncs skip it.
+  const later = mergeSynced(out, [{ externalId: 'eb:w:z', date: '2026-11-30', description: 'TRF.IMED. P/ AKSHIV KUMAR-E5', amount: 20, currency: 'EUR', owner: 'wife' }], () => 'n');
+  assert.equal(later.length, 0);
+  const back = unmarkTransferIn(out, s.transactions.slice(0, 2), 'p/ akshiv kumar');
+  assert.equal(back.transactions.length, 3);
+  assert.deepEqual(back.transferIds, []);
+  assert.deepEqual(back.transferRules, []);
+  // Without remember, only that one line goes.
+  assert.deepEqual(markTransferIn(s, 'a', false).transactions.map((t) => t.id), ['b', 'c']);
+});
+
+test('transfer sides that arrived on different syncs are paired', () => {
+  const s: BudgetState = {
+    ...initialState(),
+    transactions: [
+      { id: 'a', date: '2026-11-23', description: 'TRF P/ Me', amount: 50, categoryId: null, type: 'variable-one-time', source: 'revolut', externalId: 'eb:santander:1', owner: 'wife' },
+      { id: 'b', date: '2026-11-23', description: 'Groceries', amount: 50, categoryId: 'essentials', type: 'variable-one-time', source: 'revolut', externalId: 'eb:santander:2', owner: 'wife' },
+    ],
+    income: [{ id: 'i', date: '2026-11-24', description: 'Wife', amount: 50, source: 'revolut', externalId: 'eb:revolut:9' }],
+  };
+  // Only the unsorted line pairs; the sorted one is left alone.
+  assert.deepEqual(findSyncedTransfers(s, new Date('2026-11-25')), ['eb:santander:1', 'eb:revolut:9']);
 });
