@@ -6,7 +6,7 @@ import { ThemedText } from '@/components/themed-text';
 import { Card, Chips, MonthSwitcher, useCategoryColor, useCategoryLabel, useIsDark, useMoney, WhoseFilter } from '@/components/ui';
 import { Spacing, TypeColors } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { OTHER_INCOME, addMonths, monthLabel, incomeInMonths, monthsBetween, moneyFlow, rangeLabel, transactionsInMonths, type FlowNode } from '@/lib/budget';
+import { OTHER_INCOME, addMonths, incomeSourceOf, monthLabel, incomeInMonths, monthsBetween, moneyFlow, rangeLabel, transactionsInMonths, type FlowNode } from '@/lib/budget';
 import { useBudget } from '@/lib/store';
 import { ITEM_TYPES, type ItemType, type Month } from '@/lib/types';
 
@@ -81,10 +81,10 @@ export function MoneyFlowCard({ month }: { month: Month }) {
       ? incomeInMonths(state.income, months)
           .filter((i) =>
             node.key === OTHER_INCOME
-              ? !topSources.has(i.description.trim().toLowerCase())
-              : i.description.trim().toLowerCase() === node.key.toLowerCase(),
+              ? !topSources.has(incomeSourceOf(i).toLowerCase())
+              : incomeSourceOf(i).toLowerCase() === node.key.toLowerCase(),
           )
-          .map((i) => ({ id: i.id, note: undefined as string | undefined, label: i.description, sub: i.date, amount: i.amount }))
+          .map((i) => ({ id: `${i.id}:${i.date}`, note: i.note, label: i.description, sub: i.tag ? `${i.date} · ${i.tag}` : i.date, amount: i.amount }))
       : node.kind === 'category' || node.kind === 'type'
         ? transactionsInMonths(state.transactions, months)
             .filter((t) => (node.kind === 'category' ? (t.categoryId ?? 'none') === node.key : t.type === node.key))

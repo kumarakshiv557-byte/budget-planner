@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AppState, Platform } from 'react-native';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
-import { forPerson, markTransferIn, newId, recategorizeIn, resortIn, ruleFrom, sortIn, unmarkTransferIn, unsortIn, type SortPick } from './budget.ts';
+import { forPerson, markTransferIn, tagIncomeIn, tagNewIncome, newId, recategorizeIn, resortIn, ruleFrom, sortIn, unmarkTransferIn, unsortIn, type SortPick } from './budget.ts';
 import { cloudApi, decide, type CloudMeta, type CloudStatus } from './cloud.ts';
 import { initialState, migrate } from './defaults.ts';
 import { applyTransfers, SYNC_CONFIG_KEY, type SyncConfig } from './sync.ts';
@@ -43,6 +43,8 @@ type Actions = {
   saveIncome: (i: Omit<Income, 'id'> & { id?: string }) => void;
   deleteIncome: (id: string) => void;
   addIncome: (list: Income[]) => void;
+  /** Tag an income line; with `learn`, remember it for the sender and tag their other lines too. */
+  tagIncome: (id: string, tag: string | undefined, note: string | undefined, learn: boolean) => void;
   /** Recategorise a transaction; with `learn`, remember the merchant and sort its other unsorted transactions too. */
   recategorize: (id: string, categoryId: string, learn: boolean, subcategoryId?: string) => void;
   /** Sort a payment from "to sort": category plus type (and payment tag). */
@@ -247,7 +249,7 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
             lastSyncedAt: at,
             ...(details ? { detailsBackfilled: true } : {}),
             transactions: [...withDetails, ...ts],
-            ...(income ? { income: [...s.income, ...income], incomeBackfilled: true } : {}),
+            ...(income ? { income: [...s.income, ...tagNewIncome(s, income)], incomeBackfilled: true } : {}),
             ...(owners ? { syncedOwners: [...new Set([...(s.syncedOwners ?? []), ...owners])] } : {}),
           };
           return transfers.length ? { ...next, ...applyTransfers(next, transfers) } : next;
@@ -259,7 +261,8 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
           return { ...s, income: exists ? s.income.map((x) => (x.id === full.id ? full : x)) : [...s.income, full] };
         }),
       deleteIncome: (id) => update((s) => ({ ...s, income: s.income.filter((x) => x.id !== id) })),
-      addIncome: (list) => update((s) => ({ ...s, income: [...s.income, ...list] })),
+      addIncome: (list) => update((s) => ({ ...s, income: [...s.income, ...tagNewIncome(s, list)] })),
+      tagIncome: (id, tag, note, learn) => update((s) => tagIncomeIn(s, id, tag, note, learn)),
       recategorize: (id, categoryId, learn, subcategoryId) => update((s) => recategorizeIn(s, id, categoryId, subcategoryId, learn)),
       sortTransaction: (id, pick, learn) => update((s) => sortIn(s, id, pick, learn)),
       markTransfer: (id, learn) => update((s) => markTransferIn(s, id, learn)),
