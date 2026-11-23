@@ -1,3 +1,6 @@
+import type { TxDetails } from '../../supabase/functions/revolut-sync/eb-normalize.ts';
+
+export type { TxDetails };
 /** How an item behaves over time. */
 export type ItemType =
   | 'recurring-fixed'
@@ -99,6 +102,8 @@ export type Transaction = {
   externalId?: string;
   /** When you last sorted or fixed it by hand (ISO time), for "Recently sorted". */
   sortedAt?: string;
+  /** Extra facts from the bank: card or transfer, merchant type, place, reference, original currency. */
+  details?: TxDetails;
 };
 
 /** Money that came in (salary, transfers from others). Amount is positive. */
@@ -142,6 +147,8 @@ export type BudgetState = {
   syncedOwners?: string[];
   /** True once Revolut income has been fetched for the full ~90-day window. */
   incomeBackfilled?: boolean;
+  /** Older bank lines were given their bank details (one full re-read). */
+  detailsBackfilled?: boolean;
   /** When Revolut sync last succeeded (ISO time). */
   lastSyncedAt?: string;
   /** Which one-off data upgrades (see `migrate`) have run. */

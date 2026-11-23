@@ -59,3 +59,29 @@ for (const format of ['pkcs8', 'pkcs1'] as const) {
     assert.ok(v.verify(publicKey, Buffer.from(sig)));
   });
 }
+
+test('keeps the bank details of a card payment', () => {
+  const { spending } = normalizeRows('acc', [
+    {
+      entry_reference: 'r1',
+      transaction_amount: { amount: '12.50', currency: 'EUR' },
+      credit_debit_indicator: 'DBIT',
+      booking_date: '2026-11-22',
+      transaction_date: '2026-11-21',
+      creditor: { name: 'Costa Coffee', postal_address: { town_name: 'Lisboa', country: 'PT' } },
+      merchant_category_code: '5814',
+      remittance_information: ['Costa Coffee Lisboa card 1234'],
+      exchange_rate: { instructed_amount: { amount: '10.80', currency: 'GBP' } },
+    },
+    { entry_reference: 'r2', transaction_amount: { amount: '5', currency: 'EUR' }, credit_debit_indicator: 'DBIT', booking_date: '2026-11-22', remittance_information: ['Bolt'] },
+  ]);
+  assert.deepEqual(spending[0].details, {
+    merchantType: 'Fast food',
+    kind: 'Card payment',
+    place: 'Lisboa, PT',
+    reference: 'Costa Coffee Lisboa card 1234',
+    foreign: 'GBP 10.80',
+    usedOn: '2026-11-21',
+  });
+  assert.equal(spending[1].details, undefined);
+});

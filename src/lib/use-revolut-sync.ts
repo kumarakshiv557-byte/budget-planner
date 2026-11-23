@@ -5,7 +5,7 @@ import { Platform } from 'react-native';
 
 import { newId } from './budget.ts';
 import { useBudget } from './store.tsx';
-import { SYNC_CONFIG_KEY, findSyncedTransfers, mergeSynced, mergeSyncedIncome, nextDateFrom, syncApi, type SyncConfig, type SyncStatus } from './sync.ts';
+import { SYNC_CONFIG_KEY, detailsFor, findSyncedTransfers, mergeSynced, mergeSyncedIncome, nextDateFrom, syncApi, type SyncConfig, type SyncStatus } from './sync.ts';
 
 export { SYNC_CONFIG_KEY };
 const KEY = SYNC_CONFIG_KEY;
@@ -90,7 +90,9 @@ export function useRevolutSync() {
         // Someone whose bank was connected since the last sync gets their full ~90 days.
         const synced = s.syncedOwners ?? (s.lastSyncedAt ? ['me'] : []);
         const fullFor = s.people.map((p) => p.id).filter((id) => !synced.includes(id));
-        const res = await syncApi.sync(config, s.incomeBackfilled ? nextDateFrom(s.lastSyncedAt) : undefined, fullFor);
+        // Once, re-read the full window so lines synced before bank details were kept get them too.
+        const refill = !s.detailsBackfilled && !!s.lastSyncedAt;
+        const res = await syncApi.sync(config, s.incomeBackfilled && !refill ? nextDateFrom(s.lastSyncedAt) : undefined, fullFor);
         const added = mergeSynced(s, res.transactions, newId);
         const income = res.income ? mergeSyncedIncome(s, res.income, newId) : undefined;
         // Also pair up the two sides of a transfer that arrived on different syncs.
@@ -98,7 +100,9 @@ export function useRevolutSync() {
         const transfers = [...new Set([...(res.transfers ?? []), ...findSyncedTransfers(merged)])];
         const known = new Set([...s.transactions, ...s.income].map((t) => t.externalId).filter(Boolean));
         const removed = transfers.filter((id) => known.has(id)).length;
-        applySync(added, new Date().toISOString(), income, transfers, res.owners ?? ['me']);
+        // Only count the refill as done when every connected bank was read.
+        const details = refill && !(res.problems ?? []).length ? detailsFor(s, res.transactions) : !s.lastSyncedAt ? {} : undefined;
+        applySync(added, new Date().toISOString(), income, transfers, res.owners ?? ['me'], details);
         setStatus((st) => ({ ...(st ?? { connected: true }), connected: true, validUntil: res.validUntil }));
         loadStatus();
         const parts = [];
