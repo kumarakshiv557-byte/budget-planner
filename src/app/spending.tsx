@@ -23,7 +23,7 @@ import {
 } from '@/components/ui';
 import { Spacing, TypeColors } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { billsCalendar, currentMonth, incomeIn, isTransferLine, monthLabel, newId, paymentNote, sortedAlike, transactionsIn, transferRuleFrom } from '@/lib/budget';
+import { billsCalendar, currentMonth, incomeIn, isTransferLine, monthLabel, newId, paymentNote, recentlySorted, sortedAlike, transactionsIn, transferRuleFrom } from '@/lib/budget';
 import { downloadCalendar } from '@/lib/calendar-file';
 import { parseRevolutCsv } from '@/lib/revolut-csv';
 import { pickCsvText } from '@/lib/pick-file';
@@ -44,6 +44,13 @@ const PAY_PICKS: { id: Payment; label: string }[] = [
 ];
 const TYPE_PICKS: { id: TypePick; label: string }[] = LINE_TYPES;
 const today = () => new Date().toISOString().slice(0, 10);
+/** "Sorted 14:05" today, else "Sorted 21 Nov". */
+const sortedWhen = (iso: string) => {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return 'Sorted';
+  const sameDay = d.toDateString() === new Date().toDateString();
+  return `Sorted ${sameDay ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : d.toLocaleDateString([], { day: 'numeric', month: 'short' })}`;
+};
 
 export default function SpendingScreen() {
   const { state, allState, whose, saveTransaction, resortTransaction, unsortTransaction, deleteTransaction, addTransactions, sortTransaction, markTransfer, undoTransfer, saveItem, addIncome, saveIncome, deleteIncome } = useBudget();
@@ -66,6 +73,9 @@ export default function SpendingScreen() {
   const [picks, setPicks] = useState<Record<string, Pick>>({});
   // The last payment(s) taken out as a transfer, so it can be undone.
   const [moved, setMoved] = useState<{ removed: Transaction[]; rule?: string } | null>(null);
+  // "Recently sorted": how many lines it shows (0 = closed), and which list the edit form opened in.
+  const [recentCount, setRecentCount] = useState(0);
+  const [editIn, setEditIn] = useState<'recent' | 'month'>('month');
   const takeOutAsTransfer = (t: Transaction) => {
     const rule = learn ? transferRuleFrom(t.description) : undefined;
     const removed = allState.transactions.filter((x) => x.id === t.id || (rule && !x.categoryId && isTransferLine(x.description, [rule])));
@@ -166,13 +176,18 @@ export default function SpendingScreen() {
       note: draft.note?.trim() || undefined,
       remark: draft.remark?.trim() || undefined,
       owner: draft.owner && draft.owner !== 'me' ? draft.owner : undefined,
+      sortedAt: draft.categoryId ? new Date().toISOString() : undefined,
       source: draft.id ? (state.transactions.find((t) => t.id === draft.id)?.source ?? 'manual') : 'manual',
       externalId: draft.id ? state.transactions.find((t) => t.id === draft.id)?.externalId : undefined,
     });
     setDraft(null);
   };
 
-  const edit = (t: Transaction) => setDraft({ ...t, amount: String(t.amount) });
+  const edit = (t: Transaction, where: 'recent' | 'month' = 'month') => {
+    setEditIn(where);
+    setDraft({ ...t, amount: String(t.amount) });
+  };
+  const recent = recentCount ? recentlySorted(state.transactions) : [];
   // For quick sorting: every category, each followed by its subcategories ("s:" ids).
   // Quick sorting shows categories only; a picked category's subcategories appear under it.
   const sortOptions = state.categories.map((c) => ({ id: `c:${c.id}`, label: c.name }));
@@ -231,6 +246,38 @@ export default function SpendingScreen() {
   const dueOf = (t: Transaction, p?: Pick) => {
     const d = Number(p?.due ?? t.date.slice(8));
     return Number.isInteger(d) && d >= 1 && d <= 31 ? d : Number(t.date.slice(8));
+  };
+
+  const lineRow = (t: Transaction, where: 'recent' | 'month', when?: string) => {
+            const c = state.categories.find((x) => x.id === t.categoryId);
+            return (
+              <Fragment key={t.id}>
+              <Pressable
+                onPress={() => (draft?.id === t.id && editIn === where ? setDraft(null) : edit(t, where))}
+                style={{ flexDirection: 'row', gap: Spacing.two, alignItems: 'center', paddingVertical: 6, borderTopWidth: 1, borderColor: theme.border }}>
+                <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: colorFor(c) }} />
+                <View style={{ flex: 1 }}>
+                  {t.note ? <ThemedText type="smallBold">{t.note}</ThemedText> : null}
+                  <ThemedText type="small" themeColor={t.note ? 'textSecondary' : undefined}>
+                    {t.description}
+                  </ThemedText>
+                  <ThemedText type="small" themeColor="textSecondary">
+                    {when ?? t.date} · {t.categoryId ? `${catLabel(t.categoryId, t.subcategoryId)} · ${TYPE_LABEL[t.type]}` : 'Unsorted'}
+                    {t.payment ? ` · ${paymentNote(t)}` : ''}
+                    {t.source === 'csv' ? ' · imported' : t.source === 'revolut' ? ' · synced' : ''}
+                    {personTag(t)}
+                  </ThemedText>
+                  {t.remark ? (
+                    <ThemedText type="small" style={{ fontStyle: 'italic' }}>
+                      💬 {t.remark}
+                    </ThemedText>
+                  ) : null}
+                </View>
+                <ThemedText type="small">{money(t.amount)}</ThemedText>
+              </Pressable>
+              {draft?.id === t.id && editIn === where ? <View style={{ paddingBottom: Spacing.two }}>{draftForm}</View> : null}
+              </Fragment>
+            );
   };
 
   // Editing opens right under the tapped line; a new entry opens at the top.
@@ -304,6 +351,16 @@ export default function SpendingScreen() {
               }}
             />
           ) : null}
+          {editing && editing.source !== 'manual' ? (
+            <Button
+              label="↔ Transfer"
+              kind="secondary"
+              onPress={() => {
+                takeOutAsTransfer(editing);
+                setDraft(null);
+              }}
+            />
+          ) : null}
           {draft.id ? (
             <Button
               label="Delete"
@@ -333,6 +390,14 @@ export default function SpendingScreen() {
           }
         />
         <Button label="Import Revolut CSV" kind="secondary" onPress={importCsv} />
+        <Button
+          label={recentCount ? 'Hide recently sorted' : '✎ Fix recently sorted'}
+          kind="secondary"
+          onPress={() => {
+            if (recentCount && editIn === 'recent') setDraft(null);
+            setRecentCount(recentCount ? 0 : 15);
+          }}
+        />
       </View>
       {notice ? (
         <ThemedText type="small" style={{ color: notice.error ? theme.critical : theme.textSecondary }}>
@@ -375,6 +440,21 @@ export default function SpendingScreen() {
             }}
           />
         </View>
+      ) : null}
+
+      {recentCount ? (
+        <Card
+          title="Recently sorted"
+          subtitle="Newest first, across all months. Tap a line to change its category, type or how it's paid, mark it as a transfer, or send it back to sort.">
+          {recent.length === 0 ? (
+            <ThemedText type="small" themeColor="textSecondary">
+              Nothing sorted yet.
+            </ThemedText>
+          ) : (
+            recent.slice(0, recentCount).map((t) => lineRow(t, 'recent', t.sortedAt ? `${sortedWhen(t.sortedAt)} · paid ${t.date}` : t.date))
+          )}
+          {recent.length > recentCount ? <Button label="Show more" kind="secondary" onPress={() => setRecentCount(recentCount + 15)} /> : null}
+        </Card>
       ) : null}
 
       {uncategorised.length ? (
@@ -540,37 +620,7 @@ export default function SpendingScreen() {
             Nothing recorded in {monthLabel(month)}.
           </ThemedText>
         ) : (
-          list.map((t) => {
-            const c = state.categories.find((x) => x.id === t.categoryId);
-            return (
-              <Fragment key={t.id}>
-              <Pressable
-                onPress={() => (draft?.id === t.id ? setDraft(null) : edit(t))}
-                style={{ flexDirection: 'row', gap: Spacing.two, alignItems: 'center', paddingVertical: 6, borderTopWidth: 1, borderColor: theme.border }}>
-                <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: colorFor(c) }} />
-                <View style={{ flex: 1 }}>
-                  {t.note ? <ThemedText type="smallBold">{t.note}</ThemedText> : null}
-                  <ThemedText type="small" themeColor={t.note ? 'textSecondary' : undefined}>
-                    {t.description}
-                  </ThemedText>
-                  <ThemedText type="small" themeColor="textSecondary">
-                    {t.date} · {t.categoryId ? `${catLabel(t.categoryId, t.subcategoryId)} · ${TYPE_LABEL[t.type]}` : 'Unsorted'}
-                    {t.payment ? ` · ${paymentNote(t)}` : ''}
-                    {t.source === 'csv' ? ' · imported' : t.source === 'revolut' ? ' · synced' : ''}
-                    {personTag(t)}
-                  </ThemedText>
-                  {t.remark ? (
-                    <ThemedText type="small" style={{ fontStyle: 'italic' }}>
-                      💬 {t.remark}
-                    </ThemedText>
-                  ) : null}
-                </View>
-                <ThemedText type="small">{money(t.amount)}</ThemedText>
-              </Pressable>
-              {draft?.id === t.id ? <View style={{ paddingBottom: Spacing.two }}>{draftForm}</View> : null}
-              </Fragment>
-            );
-          })
+list.map((t) => lineRow(t, 'month'))
         )}
       </Card>
     </Screen>

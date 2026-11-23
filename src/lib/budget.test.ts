@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { addMonths, billsCalendar, forPerson, incomeIn, billsFor, breakdown, matchRule, recategorizeIn, resortIn, ruleFrom, sortIn, sortedAlike, subscriptionsTotal, unsortIn, moneyFlow, categorize, typeFor, summarizeMonth, trend, transferRuleFrom, markTransferIn, unmarkTransferIn } from './budget.ts';
+import { addMonths, billsCalendar, forPerson, incomeIn, billsFor, breakdown, matchRule, recategorizeIn, resortIn, ruleFrom, sortIn, sortedAlike, subscriptionsTotal, unsortIn, moneyFlow, categorize, typeFor, summarizeMonth, trend, transferRuleFrom, markTransferIn, unmarkTransferIn, recentlySorted } from './budget.ts';
 import { DATA_VERSION, initialState, migrate } from './defaults.ts';
 import { parseRevolutCsv } from './revolut-csv.ts';
 import { applyTransfers, findSyncedTransfers, mergeSynced, mergeSyncedIncome } from './sync.ts';
@@ -467,4 +467,18 @@ test('spending lines no longer use one-time fixed', () => {
   assert.equal(s.transactions[0].type, 'variable-one-time');
   assert.equal(s.rules[0].type, 'variable-one-time');
   assert.equal(s.items[0].type, 'fixed-one-time'); // budget items keep "planned"
+});
+
+test('recently sorted lists hand-sorted and fixed lines newest first', () => {
+  const tx = (id: string, date: string, description: string) => ({ id, date, description, amount: 5, categoryId: null, type: 'variable-one-time' as const, source: 'revolut' as const });
+  let s: BudgetState = { ...initialState(), rules: [], transactions: [tx('old', '2026-11-20', 'Old cafe'), tx('a', '2026-11-01', 'Lidl'), tx('b', '2026-11-02', 'Lidl'), tx('c', '2026-11-03', 'Bolt')] };
+  s = { ...s, transactions: s.transactions.map((t) => (t.id === 'old' ? { ...t, categoryId: 'frivolous' } : t)) };
+  s = sortIn(s, 'a', { categoryId: 'essentials', type: 'variable-one-time' }, true, '2026-11-23T10:00:00Z');
+  assert.equal(s.transactions.find((t) => t.id === 'b')?.sortedAt, '2026-11-23T10:00:00Z');
+  assert.equal(s.transactions.find((t) => t.id === 'c')?.sortedAt, undefined);
+  s = resortIn(s, { ...s.transactions.find((t) => t.id === 'b')!, categoryId: 'frivolous' }, false, '2026-11-23T11:00:00Z');
+  assert.deepEqual(recentlySorted(s.transactions).map((t) => t.id), ['b', 'a', 'old']);
+  s = unsortIn(s, 'b', false);
+  assert.equal(s.transactions.find((t) => t.id === 'b')?.sortedAt, undefined);
+  assert.deepEqual(recentlySorted(s.transactions).map((t) => t.id), ['a', 'old']);
 });
