@@ -40,6 +40,8 @@ type Actions = {
   updateCategory: (id: string, patch: Partial<Pick<Category, 'name'>>) => void;
   setCurrency: (currency: string) => void;
   renamePerson: (id: string, name: string) => void;
+  /** Remember which bank (and country) someone connects. */
+  setPersonBank: (id: string, bank: string, country: string) => void;
   resetAll: () => void;
 };
 
@@ -174,6 +176,7 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
         update((s) => ({ ...s, categories: s.categories.map((c) => (c.id === id ? { ...c, ...patch } : c)) })),
       setCurrency: (currency) => update((s) => ({ ...s, currency })),
       renamePerson: (id, name) => update((s) => ({ ...s, people: s.people.map((p) => (p.id === id ? { ...p, name } : p)) })),
+      setPersonBank: (id, bank, country) => update((s) => ({ ...s, people: s.people.map((p) => (p.id === id ? { ...p, bank, country } : p)) })),
       resetAll: () => update(() => initialState()),
     }),
     [update],
