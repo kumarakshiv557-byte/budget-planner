@@ -1,8 +1,9 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
-import { newId, recategorizeIn, resortIn, ruleFrom, sortIn, unsortIn, type SortPick } from './budget.ts';
+import { forPerson, newId, recategorizeIn, resortIn, ruleFrom, sortIn, unsortIn, type SortPick } from './budget.ts';
 import { initialState, migrate } from './defaults.ts';
+import { applyTransfers } from './sync.ts';
 import type { BudgetItem, BudgetState, Category, Income, Transaction } from './types.ts';
 
 const KEY = 'budget-planner/state/v1';
@@ -20,8 +21,12 @@ type Actions = {
   unsortTransaction: (id: string, alsoOthers: boolean) => void;
   deleteTransaction: (id: string) => void;
   addTransactions: (ts: Transaction[]) => void;
-  /** Add synced transactions (and income, when the server sent it) and record the sync time. */
-  applySync: (ts: Transaction[], at: string, income?: Income[]) => void;
+  /**
+   * Add synced transactions (and income, when the server sent it) and record the sync time. `transfers` are
+   * bank rows of money moved between the household's accounts: they are taken out and never imported.
+   * `owners` are whose connections were read.
+   */
+  applySync: (ts: Transaction[], at: string, income?: Income[], transfers?: string[], owners?: string[]) => void;
   saveIncome: (i: Omit<Income, 'id'> & { id?: string }) => void;
   deleteIncome: (id: string) => void;
   addIncome: (list: Income[]) => void;
@@ -34,10 +39,20 @@ type Actions = {
   deleteSubcategory: (id: string) => void;
   updateCategory: (id: string, patch: Partial<Pick<Category, 'name'>>) => void;
   setCurrency: (currency: string) => void;
+  renamePerson: (id: string, name: string) => void;
   resetAll: () => void;
 };
 
-type Ctx = { state: BudgetState; ready: boolean } & Actions;
+type Ctx = {
+  /** What the screens show: everyone's data, or one person's when "Whose" is set. */
+  state: BudgetState;
+  /** Everyone's data, for anything that must see it all (syncing, reminders, import checks). */
+  allState: BudgetState;
+  ready: boolean;
+  /** "all" or a Person id. */
+  whose: string;
+  setWhose: (whose: string) => void;
+} & Actions;
 
 const BudgetContext = createContext<Ctx | null>(null);
 
@@ -115,13 +130,17 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
       unsortTransaction: (id, alsoOthers) => update((s) => unsortIn(s, id, alsoOthers)),
       deleteTransaction: (id) => update((s) => ({ ...s, transactions: s.transactions.filter((t) => t.id !== id) })),
       addTransactions: (ts) => update((s) => ({ ...s, transactions: [...s.transactions, ...ts] })),
-      applySync: (ts, at, income) =>
-        update((s) => ({
-          ...s,
-          lastSyncedAt: at,
-          transactions: [...s.transactions, ...ts],
-          ...(income ? { income: [...s.income, ...income], incomeBackfilled: true } : {}),
-        })),
+      applySync: (ts, at, income, transfers = [], owners) =>
+        update((s) => {
+          const next = {
+            ...s,
+            lastSyncedAt: at,
+            transactions: [...s.transactions, ...ts],
+            ...(income ? { income: [...s.income, ...income], incomeBackfilled: true } : {}),
+            ...(owners ? { syncedOwners: [...new Set([...(s.syncedOwners ?? []), ...owners])] } : {}),
+          };
+          return transfers.length ? { ...next, ...applyTransfers(next, transfers) } : next;
+        }),
       saveIncome: (i) =>
         update((s) => {
           const full = { ...i, id: i.id ?? newId() } as Income;
@@ -154,12 +173,15 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
       updateCategory: (id, patch) =>
         update((s) => ({ ...s, categories: s.categories.map((c) => (c.id === id ? { ...c, ...patch } : c)) })),
       setCurrency: (currency) => update((s) => ({ ...s, currency })),
+      renamePerson: (id, name) => update((s) => ({ ...s, people: s.people.map((p) => (p.id === id ? { ...p, name } : p)) })),
       resetAll: () => update(() => initialState()),
     }),
     [update],
   );
 
-  const value = useMemo(() => ({ state, ready, ...actions }), [state, ready, actions]);
+  const [whose, setWhose] = useState('all');
+  const shown = useMemo(() => forPerson(state, whose), [state, whose]);
+  const value = useMemo(() => ({ state: shown, allState: state, ready, whose, setWhose, ...actions }), [shown, state, ready, whose, actions]);
   return <BudgetContext.Provider value={value}>{children}</BudgetContext.Provider>;
 }
 

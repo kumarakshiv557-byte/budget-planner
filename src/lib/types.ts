@@ -38,6 +38,12 @@ export const PAYMENTS: { id: Payment; label: string; hint: string }[] = [
 /** A finer bucket inside a category, e.g. Frivolous → "Eating out / food delivery". */
 export type Subcategory = { id: string; categoryId: string; name: string };
 
+/** Someone in the household whose money is tracked: "me" is you; the others are named in Settings. */
+export type Person = { id: string; name: string };
+
+/** Lines with no owner belong to "me". */
+export const ownerOf = (x: { owner?: string }) => x.owner ?? 'me';
+
 /** A month as "YYYY-MM". */
 export type Month = string;
 
@@ -56,6 +62,8 @@ export type BudgetItem = {
   endMonth?: Month;
   /** For recurring, fixed items: debited automatically, or paid by hand. */
   payment?: Payment;
+  /** Whose money it is (a Person id). Missing means "me". */
+  owner?: string;
   /** For "Pay myself" items: day of the month the bill is due (1-31). */
   dueDay?: number;
   /** Months in which a "Pay myself" bill was marked as paid. */
@@ -78,6 +86,8 @@ export type Transaction = {
   note?: string;
   /** A one-off remark on this payment only. Never remembered or copied to other payments. */
   remark?: string;
+  /** Whose account it came from or who paid (a Person id). Missing means "me". */
+  owner?: string;
   source: TransactionSource;
   /** Bank/CSV reference used to skip duplicates on re-import. */
   externalId?: string;
@@ -91,6 +101,12 @@ export type Income = {
   amount: number;
   source: TransactionSource;
   externalId?: string;
+  /** Who received it (a Person id). Missing means "me". */
+  owner?: string;
+  /** Added by hand and comes in every month from this date's month, e.g. a salary paid outside the bank. */
+  monthly?: boolean;
+  /** For monthly income: the last month it comes in. */
+  endMonth?: Month;
 };
 
 /**
@@ -108,6 +124,12 @@ export type BudgetState = {
   transactions: Transaction[];
   rules: CategoryRule[];
   income: Income[];
+  /** The household: "me" plus anyone else whose money is tracked. */
+  people: Person[];
+  /** Bank rows found to be money moved between two of the household's connected accounts. Never imported. */
+  transferIds?: string[];
+  /** Owners whose bank connection has been synced at least once (a new one gets its full history). */
+  syncedOwners?: string[];
   /** True once Revolut income has been fetched for the full ~90-day window. */
   incomeBackfilled?: boolean;
   /** When Revolut sync last succeeded (ISO time). */

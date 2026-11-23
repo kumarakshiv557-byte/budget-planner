@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createVerify, generateKeyPairSync } from 'node:crypto';
 import { test } from 'node:test';
 
-import { base64url, normalizeRows, normalizeTransactions, pemToPkcs8 } from '../../supabase/functions/revolut-sync/eb-normalize.ts';
+import { base64url, findTransfers, normalizeRows, normalizeTransactions, pemToPkcs8 } from '../../supabase/functions/revolut-sync/eb-normalize.ts';
 
 test('Enable Banking rows: keeps booked debits, skips credits, pending and own transfers', () => {
   const rows = [
@@ -33,6 +33,18 @@ test('Enable Banking rows: money in becomes income, except from your own account
   const { spending, income } = normalizeRows('acc1', rows, ['LT123456']);
   assert.deepEqual(income.map((t) => [t.externalId, t.description, t.amount]), [['eb:acc1:c1', 'Employer Lda', 2000]]);
   assert.deepEqual(spending.map((t) => t.externalId), ['eb:acc1:d1']);
+});
+
+test('transfers between two connected accounts are paired up, once each', () => {
+  const row = (id: string, date: string, amount: number) => ({ externalId: `eb:${id}`, date, description: 'x', amount, currency: 'EUR' });
+  const spending = [row('mine:s1', '2026-11-10', 500), row('mine:s2', '2026-11-12', 40), row('mine:s3', '2026-11-20', 500)];
+  const income = [
+    row('wife:i1', '2026-11-11', 500), // from me, a day later
+    row('mine:i2', '2026-11-12', 40), // same account: not a transfer
+    row('wife:i3', '2026-11-30', 500), // 10 days later: too far apart
+    row('wife:i4', '2026-11-20', 500), // the second 500
+  ];
+  assert.deepEqual(findTransfers(spending, income), ['eb:mine:s1', 'eb:wife:i1', 'eb:mine:s3', 'eb:wife:i4']);
 });
 
 for (const format of ['pkcs8', 'pkcs1'] as const) {

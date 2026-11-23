@@ -2,7 +2,22 @@ import { useState } from 'react';
 import { Pressable, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
-import { Button, CategoryPicker, Card, Chips, Field, Label, MonthSwitcher, Screen, styles, useCategoryColor, useMoney } from '@/components/ui';
+import {
+  Button,
+  CategoryPicker,
+  Card,
+  Chips,
+  Field,
+  Label,
+  MonthSwitcher,
+  PersonChips,
+  Screen,
+  styles,
+  useCategoryColor,
+  useMoney,
+  usePersonTag,
+  WhoseFilter,
+} from '@/components/ui';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { currentMonth, itemAppliesTo, monthLabel, paymentNote } from '@/lib/budget';
@@ -21,6 +36,7 @@ type Draft = {
   startMonth: string;
   endMonth: string;
   paidMonths?: string[];
+  owner?: string;
 };
 type Filter = 'all' | Payment;
 const FILTERS: { id: Filter; label: string }[] = [{ id: 'all', label: 'All' }, ...PAYMENTS.map((p) => ({ id: p.id as Filter, label: p.label }))];
@@ -29,7 +45,8 @@ const FILTERS: { id: Filter; label: string }[] = [{ id: 'all', label: 'All' }, .
 const TYPE_LABEL = Object.fromEntries(ITEM_TYPES.map((t) => [t.id, t.label]));
 
 export default function BudgetScreen() {
-  const { state, saveItem, deleteItem } = useBudget();
+  const { state, whose, saveItem, deleteItem } = useBudget();
+  const personTag = usePersonTag();
   const money = useMoney();
   const colorFor = useCategoryColor();
   const theme = useTheme();
@@ -44,6 +61,7 @@ export default function BudgetScreen() {
     amount: '',
     startMonth: month,
     endMonth: '',
+    owner: whose === 'all' ? 'me' : whose,
   });
 
   const edit = (i: BudgetItem) =>
@@ -81,6 +99,7 @@ export default function BudgetScreen() {
         ? { payment: draft.payment, ...(draft.payment === 'manual' && draft.dueDay ? { dueDay } : {}) }
         : {}),
       paidMonths: draft.paidMonths,
+      ...(draft.owner && draft.owner !== 'me' ? { owner: draft.owner } : {}),
     });
     setDraft(null);
   };
@@ -91,6 +110,7 @@ export default function BudgetScreen() {
 
   return (
     <Screen title="Budget" right={<MonthSwitcher month={month} onChange={setMonth} />}>
+      <WhoseFilter />
       <ThemedText type="small" themeColor="textSecondary">
         Your forecast: what you expect to spend. Recurring items repeat every month from their start month; one-time items count
         only in their month.
@@ -108,6 +128,8 @@ export default function BudgetScreen() {
               placeholder="0"
             />
           </View>
+          <Label>Whose money</Label>
+          <PersonChips value={draft.owner ?? 'me'} onChange={(owner) => setDraft({ ...draft, owner })} />
           <Label>Category</Label>
           <CategoryPicker
             categoryId={draft.categoryId}
@@ -206,6 +228,7 @@ export default function BudgetScreen() {
                       {TYPE_LABEL[i.type]}
                       {i.payment ? ` · ${paymentNote(i)}` : ''}
                       {i.endMonth ? ` · until ${monthLabel(i.endMonth, 'short')}` : ''}
+                      {personTag(i)}
                     </ThemedText>
                   </View>
                   <ThemedText type="small">{money(i.amount)}</ThemedText>

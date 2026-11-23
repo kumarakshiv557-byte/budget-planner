@@ -1,5 +1,5 @@
 import { matchRule } from './budget.ts';
-import type { BudgetItem, BudgetState, Category, CategoryRule, Subcategory, Transaction } from './types.ts';
+import type { BudgetItem, BudgetState, Category, CategoryRule, Person, Subcategory, Transaction } from './types.ts';
 
 // Categorical colours in fixed order (validated for colour-blind separation).
 // Light/dark steps are chosen separately rather than auto-flipped.
@@ -42,6 +42,12 @@ export const DEFAULT_RULES: CategoryRule[] = [
   ...EATING_OUT_RULES,
 ];
 
+export const DEFAULT_PEOPLE: Person[] = [
+  { id: 'me', name: 'Me' },
+  { id: 'wife', name: 'Wife' },
+  { id: 'mom', name: 'Mom' },
+];
+
 export function initialState(): BudgetState {
   return {
     version: 1,
@@ -51,6 +57,7 @@ export function initialState(): BudgetState {
     items: [],
     transactions: [],
     income: [],
+    people: DEFAULT_PEOPLE.map((p) => ({ ...p })),
     rules: DEFAULT_RULES.map((r) => ({ ...r })),
     dataVersion: DATA_VERSION,
   };

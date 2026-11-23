@@ -25,6 +25,8 @@ export type SyncedTransaction = {
   description: string;
   amount: number;
   currency: string;
+  /** Whose bank connection it came from ("me", "wife", …). Missing means "me". */
+  owner?: string;
 };
 
 /**
@@ -68,6 +70,35 @@ export function normalizeRows(
     });
   }
   return { spending, income };
+}
+
+/** The bank account a synced row came from (its externalId is `eb:<account uid>:<ref>`). */
+const accountOf = (r: SyncedTransaction) => r.externalId.split(':')[1] ?? '';
+
+/**
+ * Money moved between two of your connected accounts (say from yours to your wife's) shows up as spending
+ * in one and income in the other. Pair them up: same amount and currency, different accounts, booked at most
+ * `days` apart. Each row is used at most once. Returns the externalIds of both sides of every pair.
+ */
+export function findTransfers(spending: SyncedTransaction[], income: SyncedTransaction[], days = 3): string[] {
+  const used = new Set<string>();
+  const out: string[] = [];
+  const dayOf = (d: string) => Date.parse(`${d}T00:00:00Z`) / 86400_000;
+  for (const s of [...spending].sort((a, b) => a.date.localeCompare(b.date))) {
+    let best: SyncedTransaction | undefined;
+    for (const i of income) {
+      if (used.has(i.externalId) || i.currency !== s.currency || i.amount !== s.amount) continue;
+      if (accountOf(i) === accountOf(s)) continue;
+      const gap = Math.abs(dayOf(i.date) - dayOf(s.date));
+      if (gap > days) continue;
+      if (!best || gap < Math.abs(dayOf(best.date) - dayOf(s.date))) best = i;
+    }
+    if (best) {
+      used.add(best.externalId);
+      out.push(s.externalId, best.externalId);
+    }
+  }
+  return out;
 }
 
 /** Spending rows only (money out, positive). */
