@@ -28,7 +28,7 @@ import { downloadCalendar } from '@/lib/calendar-file';
 import { parseRevolutCsv } from '@/lib/revolut-csv';
 import { pickCsvText } from '@/lib/pick-file';
 import { useBudget } from '@/lib/store';
-import { ITEM_TYPES, PAYMENTS, isRecurring, type BudgetItem, type ItemType, type Payment, type Transaction } from '@/lib/types';
+import { ITEM_TYPES, LINE_TYPES, PAYMENTS, isRecurring, type BudgetItem, type ItemType, type Payment, type Transaction } from '@/lib/types';
 
 type Draft = { id?: string; date: string; description: string; amount: string; categoryId: string | null; subcategoryId?: string; type: ItemType; payment?: Payment; note?: string; remark?: string; owner?: string };
 
@@ -42,7 +42,7 @@ const PAY_PICKS: { id: Payment; label: string }[] = [
   { id: 'auto', label: '⚡ Subscription (auto-debited)' },
   { id: 'manual', label: 'Pay myself' },
 ];
-const TYPE_PICKS: { id: TypePick; label: string }[] = ITEM_TYPES;
+const TYPE_PICKS: { id: TypePick; label: string }[] = LINE_TYPES;
 const today = () => new Date().toISOString().slice(0, 10);
 
 export default function SpendingScreen() {
@@ -272,7 +272,7 @@ export default function SpendingScreen() {
           onChange={(categoryId, subcategoryId) => setDraft({ ...draft, categoryId, subcategoryId })}
         />
         <Label>Type</Label>
-        <Chips options={ITEM_TYPES} value={draft.type} onChange={(type) => setDraft({ ...draft, type })} />
+        <Chips options={LINE_TYPES} value={draft.type} onChange={(type) => setDraft({ ...draft, type })} />
         {isRecurring(draft.type) ? (
           <>
             <Label>How is it paid?</Label>

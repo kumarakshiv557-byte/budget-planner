@@ -1,12 +1,25 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { AppState, Platform } from 'react-native';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
 import { forPerson, markTransferIn, newId, recategorizeIn, resortIn, ruleFrom, sortIn, unmarkTransferIn, unsortIn, type SortPick } from './budget.ts';
+import { cloudApi, decide, type CloudMeta, type CloudStatus } from './cloud.ts';
 import { initialState, migrate } from './defaults.ts';
-import { applyTransfers } from './sync.ts';
+import { applyTransfers, SYNC_CONFIG_KEY, type SyncConfig } from './sync.ts';
 import type { BudgetItem, BudgetState, Category, Income, Transaction } from './types.ts';
 
 const KEY = 'budget-planner/state/v1';
+/** This device's CloudMeta (which server version its data is based on, and whether it has unsaved changes). */
+const META_KEY = `${KEY}/cloud`;
+/** This device's own copy, kept when another device's newer copy replaced it. */
+const BACKUP_KEY = `${KEY}/replaced-copy`;
+
+async function readConfig(): Promise<SyncConfig | null> {
+  const raw = await AsyncStorage.getItem(SYNC_CONFIG_KEY).catch(() => null);
+  const c = raw ? (JSON.parse(raw) as Partial<SyncConfig>) : {};
+  const url = c.url ?? process.env.EXPO_PUBLIC_SYNC_URL ?? 'https://lyfztzgubetxreowrylh.supabase.co/functions/v1/revolut-sync';
+  return url.startsWith('https://') && (c.secret ?? '').length >= 12 ? { url, secret: c.secret! } : null;
+}
 
 type Actions = {
   saveItem: (item: Omit<BudgetItem, 'id'> & { id?: string }) => void;
@@ -57,6 +70,10 @@ type Ctx = {
   /** "all" or a Person id. */
   whose: string;
   setWhose: (whose: string) => void;
+  /** Saving to the server: off until the sync passphrase is set. */
+  cloud: CloudStatus;
+  /** Check the server for a newer copy now (and save this device's changes). */
+  pullCloud: () => void;
 } & Actions;
 
 const BudgetContext = createContext<Ctx | null>(null);
@@ -65,6 +82,8 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<BudgetState>(initialState);
   const [ready, setReady] = useState(false);
   const loaded = useRef(false);
+  /** A state that came from storage or the server rather than from a change made here; it isn't sent back. */
+  const notMine = useRef<BudgetState | null>(null);
 
   useEffect(() => {
     AsyncStorage.getItem(KEY)
@@ -73,7 +92,9 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
         const saved = JSON.parse(raw);
         // Keep a copy of the data from before the one-time sorting reset, just in case.
         if ((saved.dataVersion ?? 1) < 3) AsyncStorage.setItem(`${KEY}/before-sort-reset`, raw).catch(() => {});
-        setState(migrate(saved));
+        const restored = migrate(saved);
+        notMine.current = restored;
+        setState(restored);
       })
       .catch(() => {})
       .finally(() => {
@@ -85,6 +106,87 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (loaded.current) AsyncStorage.setItem(KEY, JSON.stringify(state)).catch(() => {});
   }, [state]);
+
+  // ---- Keeping the budget on the server (shared by every device) ----
+  const [cloud, setCloud] = useState<CloudStatus>({ kind: 'off' });
+  const meta = useRef<CloudMeta>({ version: 0, dirty: false });
+  const latest = useRef(state);
+  useEffect(() => {
+    latest.current = state;
+  }, [state]);
+  const busy = useRef(false);
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const saveMeta = (m: CloudMeta) => {
+    meta.current = m;
+    AsyncStorage.setItem(META_KEY, JSON.stringify(m)).catch(() => {});
+  };
+
+  const syncCloud = useCallback(async () => {
+    if (busy.current || !loaded.current) return;
+    const cfg = await readConfig();
+    if (!cfg) return setCloud({ kind: 'off' });
+    busy.current = true;
+    try {
+      const server = await cloudApi.get(cfg);
+      let action = decide(meta.current, server.version);
+      for (let tries = 0; tries < 3; tries++) {
+        if (action === 'adopt' || action === 'conflict') {
+          if (action === 'conflict') await AsyncStorage.setItem(BACKUP_KEY, JSON.stringify(latest.current)).catch(() => {});
+          const copy = migrate(server.data ?? {});
+          notMine.current = copy;
+          setState(copy);
+          saveMeta({ version: server.version, dirty: false });
+          setCloud(action === 'conflict' ? { kind: 'replaced', at: server.updatedAt ?? '' } : { kind: 'saved', at: server.updatedAt ?? '' });
+          return;
+        }
+        if (action === 'none') return setCloud({ kind: 'saved', at: server.updatedAt ?? '' });
+        setCloud({ kind: 'saving' });
+        const res = await cloudApi.put(cfg, latest.current, server.version);
+        if (res.ok) {
+          saveMeta({ version: res.version, dirty: false });
+          return setCloud({ kind: 'saved', at: res.updatedAt });
+        }
+        Object.assign(server, res.current);
+        action = decide(meta.current, server.version);
+      }
+    } catch (e) {
+      setCloud({ kind: 'error', text: e instanceof Error ? e.message : String(e) });
+    } finally {
+      busy.current = false;
+    }
+  }, []);
+
+  // Start: read this device's meta, then check the server.
+  useEffect(() => {
+    if (!ready) return;
+    AsyncStorage.getItem(META_KEY)
+      .then((raw) => {
+        // A device that never talked to the server counts its data as unsaved, unless it is empty.
+        meta.current = raw ? JSON.parse(raw) : { version: 0, dirty: latest.current.transactions.length + latest.current.items.length + latest.current.income.length > 0 };
+      })
+      .catch(() => {})
+      .finally(() => syncCloud());
+  }, [ready, syncCloud]);
+
+  // Every change made here is saved to the server shortly after.
+  useEffect(() => {
+    if (!loaded.current) return;
+    if (state === notMine.current) return;
+    saveMeta({ ...meta.current, dirty: true });
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => syncCloud(), 1500);
+  }, [state, syncCloud]);
+
+  // Coming back to the app: pick up what another device saved.
+  useEffect(() => {
+    if (Platform.OS === 'web' && typeof document !== 'undefined') {
+      const onShow = () => document.visibilityState === 'visible' && syncCloud();
+      document.addEventListener('visibilitychange', onShow);
+      return () => document.removeEventListener('visibilitychange', onShow);
+    }
+    const sub = AppState.addEventListener('change', (st) => st === 'active' && syncCloud());
+    return () => sub.remove();
+  }, [syncCloud]);
 
   const update = useCallback((fn: (s: BudgetState) => BudgetState) => setState((s) => fn(s)), []);
 
@@ -189,7 +291,11 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
 
   const [whose, setWhose] = useState('all');
   const shown = useMemo(() => forPerson(state, whose), [state, whose]);
-  const value = useMemo(() => ({ state: shown, allState: state, ready, whose, setWhose, ...actions }), [shown, state, ready, whose, actions]);
+  const pullCloud = useCallback(() => void syncCloud(), [syncCloud]);
+  const value = useMemo(
+    () => ({ state: shown, allState: state, ready, whose, setWhose, cloud, pullCloud, ...actions }),
+    [shown, state, ready, whose, cloud, pullCloud, actions],
+  );
   return <BudgetContext.Provider value={value}>{children}</BudgetContext.Provider>;
 }
 

@@ -53,6 +53,9 @@ export function mergeSyncedIncome(state: BudgetState, rows: SyncedTransaction[],
 
 export type SyncConfig = { url: string; secret: string };
 
+/** Where this device keeps the sync server URL and passphrase. */
+export const SYNC_CONFIG_KEY = 'budget-planner/sync-config/v1';
+
 export type Connection = {
   owner: string;
   /** The bank's name in Enable Banking (what a new link must use). */
