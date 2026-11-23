@@ -1,4 +1,4 @@
-import { isRecurring, ownerOf, type BudgetItem, type BudgetState, type Income, type ItemType, type Month, type Payment, type Transaction } from './types.ts';
+import { DEFAULT_INCOME_TAGS, isRecurring, ownerOf, type BudgetItem, type BudgetState, type Income, type IncomeRule, type ItemType, type Month, type Payment, type Transaction } from './types.ts';
 
 export function monthOf(date: string): Month {
   return date.slice(0, 7);
@@ -58,6 +58,58 @@ export function incomeIn(income: Income[], month: Month): Income[] {
     const day = Math.min(Number(i.date.slice(8, 10)) || 1, new Date(Date.UTC(y, m, 0)).getUTCDate());
     return [{ ...i, date: `${month}-${String(day).padStart(2, '0')}` }];
   });
+}
+
+/** The income tags to offer. */
+export function incomeTagsOf(state: Pick<BudgetState, 'incomeTags'>): string[] {
+  return state.incomeTags?.length ? state.incomeTags : DEFAULT_INCOME_TAGS;
+}
+
+/** The remembered income rule for a sender (longest match wins). */
+export function matchIncomeRule(description: string, rules: IncomeRule[] = []) {
+  const d = ` ${description.toLowerCase().replace(/\s+/g, ' ')} `;
+  let best: IncomeRule | null = null;
+  for (const r of rules) if (r.match && d.includes(r.match) && (!best || r.match.length > best.match.length)) best = r;
+  return best;
+}
+
+/** New income lines take the tag (and note) remembered for their sender, unless they already have one. */
+export function tagNewIncome<T extends Income>(state: Pick<BudgetState, 'incomeRules'>, list: T[]): T[] {
+  return list.map((i) => {
+    if (i.tag) return i;
+    const r = matchIncomeRule(i.description, state.incomeRules);
+    return r ? { ...i, tag: r.tag, ...(r.note && !i.note ? { note: r.note } : {}) } : i;
+  });
+}
+
+/**
+ * Tag an income line. With `learn`, remember the tag (and note) for its sender, and give it to the sender's other
+ * lines that are untagged or had the same tag as this one before; a new tag name joins the tag list.
+ */
+export function tagIncomeIn(s: BudgetState, id: string, tag: string | undefined, note: string | undefined, learn: boolean): BudgetState {
+  const line = s.income.find((x) => x.id === id);
+  if (!line) return s;
+  const clean = tag?.trim() || undefined;
+  const memo = note?.trim() || undefined;
+  const match = learn ? ruleFrom(line.description) : '';
+  const set = (x: Income): Income => {
+    const { tag: _t, note: _n, ...rest } = x;
+    return { ...rest, ...(clean ? { tag: clean } : {}), ...(memo ? { note: memo } : x.id === id ? {} : x.note ? { note: x.note } : {}) };
+  };
+  const sameSender = (x: Income) => !!match && ` ${x.description.toLowerCase().replace(/\s+/g, ' ')} `.includes(match);
+  const income = s.income.map((x) => (x.id === id || (sameSender(x) && (!x.tag || x.tag === line.tag)) ? set(x) : x));
+  let incomeRules = s.incomeRules ?? [];
+  if (match) {
+    incomeRules = incomeRules.filter((r) => r.match !== match);
+    if (clean) incomeRules = [...incomeRules, { match, tag: clean, ...(memo ? { note: memo } : {}) }];
+  }
+  const tags = incomeTagsOf(s);
+  return {
+    ...s,
+    income,
+    incomeRules,
+    ...(clean && !tags.some((t) => t.toLowerCase() === clean.toLowerCase()) ? { incomeTags: [...tags, clean] } : {}),
+  };
 }
 
 /** Every month from `from` to `to`, inclusive (in order, whichever is given first). */
@@ -254,6 +306,11 @@ export function breakdown(state: BudgetState, month: Month, dim: BreakdownDim, s
     .sort((a, b) => b.total - a.total);
 }
 
+/** What an income line is grouped under in the money flow: its tag, else who sent it. */
+export function incomeSourceOf(i: Income) {
+  return i.tag?.trim() || i.description.trim();
+}
+
 /** Key of the income node that groups the smaller sources. */
 export const OTHER_INCOME = '__other';
 
@@ -275,8 +332,9 @@ export function moneyFlow(state: BudgetState, period: Month | Month[], maxSource
 
   const bySource = new Map<string, { label: string; value: number }>();
   for (const i of incomeInMonths(state.income ?? [], months)) {
-    const k = i.description.trim().toLowerCase();
-    const g = bySource.get(k) ?? { label: i.description.trim(), value: 0 };
+    const name = incomeSourceOf(i);
+    const k = name.toLowerCase();
+    const g = bySource.get(k) ?? { label: name, value: 0 };
     g.value += i.amount;
     bySource.set(k, g);
   }

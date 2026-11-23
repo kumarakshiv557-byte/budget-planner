@@ -120,7 +120,17 @@ export type Income = {
   monthly?: boolean;
   /** For monthly income: the last month it comes in. */
   endMonth?: Month;
+  /** What kind of income it is ("Salary", "Refund", …). Remembered per sender. */
+  tag?: string;
+  /** Your own note on what it was for. Remembered per sender with the tag. */
+  note?: string;
 };
+
+/** "Money in from anyone matching this text gets this tag (and note)." */
+export type IncomeRule = { match: string; tag: string; note?: string };
+
+/** Starter income tags; you can add your own. */
+export const DEFAULT_INCOME_TAGS = ['Salary', 'Side work', 'Refund', 'Family', 'Gift', 'Interest', 'Other'];
 
 /**
  * "Anything matching this text goes to this category" (and, if set, gets this type).
@@ -141,6 +151,10 @@ export type BudgetState = {
   people: Person[];
   /** Bank rows found to be money moved between two of the household's connected accounts. Never imported. */
   transferIds?: string[];
+  /** Your income tags (missing means DEFAULT_INCOME_TAGS). */
+  incomeTags?: string[];
+  /** Remembered income tags per sender. */
+  incomeRules?: IncomeRule[];
   /** Text of payments you marked as moving money between your own accounts ("p/ akshiv kumar"); such lines are never imported. */
   transferRules?: string[];
   /** Owners whose bank connection has been synced at least once (a new one gets its full history). */
