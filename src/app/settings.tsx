@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Platform, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
@@ -7,7 +7,7 @@ import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { useBudget } from '@/lib/store';
 import { useBillPush } from '@/lib/use-bill-push';
-import { connectLink } from '@/lib/sync';
+import { connectLink, syncApi, type SyncConfig } from '@/lib/sync';
 import { useRevolutSync } from '@/lib/use-revolut-sync';
 
 const CURRENCIES = ['EUR', 'INR', 'GBP', 'USD'].map((c) => ({ id: c, label: c }));
@@ -128,9 +128,12 @@ function RevolutSyncCard() {
   const connectionOf = (id: string) => status?.connections?.find((c) => c.owner === id);
   const bankOf = (id: string) => {
     const p = allState.people.find((x) => x.id === id);
-    return { bank: p?.bank ?? connectionOf(id)?.bank ?? 'Revolut', country: p?.country ?? 'PT' };
+    // A connected bank is what the account itself reports, so it wins over anything picked before.
+    return { bank: connectionOf(id)?.bank ?? p?.bank ?? 'Revolut', country: p?.country ?? 'PT' };
   };
   const fmt = (iso: string) => new Date(iso).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' });
+  const mine = connectionOf('me');
+  const myBank = mine ? `${mine.bankName ?? mine.bank}${mine.bic ? ` · SWIFT ${mine.bic}` : ''}` : '';
   const daysLeft = status?.validUntil ? Math.ceil((new Date(status.validUntil).getTime() - Date.now()) / 86400_000) : null;
 
   return (
@@ -164,7 +167,7 @@ function RevolutSyncCard() {
       {status ? (
         <ThemedText type="small" style={{ marginTop: Spacing.two, color: status.connected ? theme.text : theme.critical }}>
           {status.connected
-            ? `✓ Connected${status.accounts?.length ? ` (${status.accounts.map((a) => a.currency ?? a.name).join(', ')})` : ''}. ` +
+            ? `✓ Connected${myBank ? ` to ${myBank}` : ''}${status.accounts?.length ? ` (${status.accounts.map((a) => a.currency ?? a.name).join(', ')})` : ''}. ` +
               (daysLeft != null ? `Revolut access lasts ${daysLeft} more day${daysLeft === 1 ? '' : 's'}, then press Connect again.` : '')
             : '⚠ Not connected. Press "Connect Revolut".'}
         </ThemedText>
@@ -177,29 +180,34 @@ function RevolutSyncCard() {
           <View key={p.id} style={{ gap: Spacing.two, paddingTop: Spacing.three, marginTop: Spacing.two, borderTopWidth: 1, borderColor: theme.border }}>
             <ThemedText type="smallBold">{p.name}&apos;s bank</ThemedText>
             {c ? (
-              <ThemedText type="small">
-                ✓ {c.bank} connected{c.accounts.length ? ` (${c.accounts.map((a) => a.currency ?? a.name).join(', ')})` : ''}. Access lasts{' '}
-                {daysUntil(c.validUntil)} more days.
-              </ThemedText>
+              <>
+                <ThemedText type="small">
+                  ✓ Connected{c.accounts.length ? ` (${c.accounts.map((a) => a.currency ?? a.name).join(', ')})` : ''}. Access lasts {daysUntil(c.validUntil)} more days.
+                </ThemedText>
+                <ReadOnly label="Bank" value={c.bankName ?? c.bank} />
+                {c.bic ? <ReadOnly label="SWIFT/BIC" value={c.bic} /> : null}
+              </>
             ) : (
-              <ThemedText type="small" themeColor="textSecondary">
-                Not connected. {p.name} approves it on their own phone: send them the link, or connect here while they sign in.
-              </ThemedText>
+              <>
+                <ThemedText type="small" themeColor="textSecondary">
+                  Not connected. {p.name} approves it on their own phone: send them the link, or connect here while they sign in.
+                </ThemedText>
+                <BankPicker
+                  config={config}
+                  enabled={configured}
+                  bank={b.bank}
+                  country={b.country}
+                  onChange={(bank, country) => {
+                    setPersonBank(p.id, bank, country);
+                    setCopied(null);
+                  }}
+                />
+              </>
             )}
-            <View style={styles.row}>
-              <Field label="Bank" value={b.bank} onChangeText={(bank) => { setPersonBank(p.id, bank, b.country); setCopied(null); }} placeholder="Revolut" />
-              <Field
-                label="Country (2 letters)"
-                value={b.country}
-                onChangeText={(country) => { setPersonBank(p.id, b.bank, country.slice(0, 2).toUpperCase()); setCopied(null); }}
-                autoCapitalize="characters"
-                placeholder="PT"
-              />
-            </View>
             <View style={styles.row}>
               {Platform.OS === 'web' ? (
                 <Button
-                  label={copied === p.id ? `${b.bank.trim() || 'Revolut'} link copied ✓` : `Copy ${b.bank.trim() || 'Revolut'} link for ${p.name}`}
+                  label={copied === p.id ? `${b.bank.trim() || 'Revolut'} link copied ✓` : `Copy ${c ? 'reconnect' : b.bank.trim() || 'Revolut'} link for ${p.name}`}
                   kind="secondary"
                   disabled={!configured}
                   onPress={() =>
@@ -211,7 +219,7 @@ function RevolutSyncCard() {
                 />
               ) : null}
               <Button
-                label={busy === 'connect' ? 'Opening…' : 'Connect here'}
+                label={busy === 'connect' ? 'Opening…' : c ? 'Reconnect here' : 'Connect here'}
                 kind="secondary"
                 onPress={() => connect({ owner: p.id, bank: b.bank, country: b.country })}
                 disabled={!configured || !!busy}
@@ -232,6 +240,92 @@ function RevolutSyncCard() {
         </ThemedText>
       ) : null}
     </Card>
+  );
+}
+
+/** A value shown like a field but not editable (it comes from the bank). */
+function ReadOnly({ label, value }: { label: string; value: string }) {
+  const theme = useTheme();
+  return (
+    <View style={{ gap: Spacing.one, flex: 1, minWidth: 140 }}>
+      <ThemedText type="small" themeColor="textSecondary">
+        {label}
+      </ThemedText>
+      <View style={{ borderWidth: 1, borderColor: theme.border, borderRadius: 12, paddingVertical: Spacing.two, paddingHorizontal: Spacing.three, opacity: 0.85 }}>
+        <ThemedText>{value}</ThemedText>
+      </View>
+    </View>
+  );
+}
+
+/**
+ * Pick a bank for someone who isn't connected yet, from the banks Enable Banking supports in that country,
+ * so the name always matches what the bank's sign-in needs.
+ */
+function BankPicker(props: { config: SyncConfig; enabled: boolean; bank: string; country: string; onChange: (bank: string, country: string) => void }) {
+  const { config, enabled, bank, country, onChange } = props;
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const [list, setList] = useState<{ country: string; names: string[] } | null>(null);
+  const [error, setError] = useState('');
+  const wanted = /^[A-Z]{2}$/.test(country) ? country : '';
+  const loaded = list?.country === wanted ? list.names : null;
+  useEffect(() => {
+    if (!open || !enabled || !wanted || list?.country === wanted) return;
+    let live = true;
+    syncApi
+      .banks(config, wanted)
+      .then((r) => live && setList({ country: wanted, names: r.banks.map((x) => x.name) }))
+      .catch((e) => live && setError(e instanceof Error ? e.message : String(e)));
+    return () => {
+      live = false;
+    };
+  }, [open, enabled, wanted, config, list]);
+  const q = query.trim().toLowerCase();
+  const shown = (loaded ?? []).filter((n) => !q || n.toLowerCase().includes(q)).slice(0, 12);
+  return (
+    <View style={{ gap: Spacing.two }}>
+      <View style={styles.row}>
+        <ReadOnly label="Bank" value={bank} />
+        <Field
+          label="Country (2 letters)"
+          value={country}
+          onChangeText={(c) => onChange(bank, c.slice(0, 2).toUpperCase())}
+          autoCapitalize="characters"
+          placeholder="PT"
+        />
+      </View>
+      {open ? (
+        <View style={{ gap: Spacing.two }}>
+          <Field label="Find a bank" value={query} onChangeText={setQuery} placeholder="e.g. Caixa, Millennium, Santander" autoCorrect={false} />
+          {loaded ? (
+            shown.length ? (
+              <Chips
+                options={shown.map((n) => ({ id: n, label: n }))}
+                value={bank}
+                onChange={(n) => {
+                  onChange(n, country);
+                  setOpen(false);
+                  setQuery('');
+                }}
+              />
+            ) : (
+              <ThemedText type="small" themeColor="textSecondary">
+                No bank matches “{query}”.
+              </ThemedText>
+            )
+          ) : (
+            <ThemedText type="small" themeColor="textSecondary">
+              {error ? `⚠ ${error}` : wanted ? 'Loading banks…' : 'Type a 2-letter country first.'}
+            </ThemedText>
+          )}
+        </View>
+      ) : (
+        <View style={styles.row}>
+          <Button label="Choose bank" kind="secondary" onPress={() => setOpen(true)} disabled={!enabled} />
+        </View>
+      )}
+    </View>
   );
 }
 
