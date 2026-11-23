@@ -128,6 +128,8 @@ export type BudgetState = {
   people: Person[];
   /** Bank rows found to be money moved between two of the household's connected accounts. Never imported. */
   transferIds?: string[];
+  /** Text of payments you marked as moving money between your own accounts ("p/ akshiv kumar"); such lines are never imported. */
+  transferRules?: string[];
   /** Owners whose bank connection has been synced at least once (a new one gets its full history). */
   syncedOwners?: string[];
   /** True once Revolut income has been fetched for the full ~90-day window. */

@@ -1,6 +1,6 @@
-import { matchRule, typeFor } from './budget.ts';
+import { isTransferLine, matchRule, typeFor } from './budget.ts';
 import type { BudgetState, Income, Transaction } from './types.ts';
-import type { SyncedTransaction } from '../../supabase/functions/revolut-sync/eb-normalize.ts';
+import { findTransfers, type SyncedTransaction } from '../../supabase/functions/revolut-sync/eb-normalize.ts';
 
 export type { SyncedTransaction };
 
@@ -9,7 +9,7 @@ export function mergeSynced(state: BudgetState, rows: SyncedTransaction[], idFor
   const seen = new Set([...state.transactions.map((t) => t.externalId).filter(Boolean), ...(state.transferIds ?? [])]);
   const out: Transaction[] = [];
   for (const r of rows) {
-    if (seen.has(r.externalId)) continue;
+    if (seen.has(r.externalId) || isTransferLine(r.description, state.transferRules)) continue;
     seen.add(r.externalId);
     const rule = matchRule(r.description, state.rules);
     const categoryId = rule?.categoryId ?? null;
@@ -36,7 +36,7 @@ export function mergeSyncedIncome(state: BudgetState, rows: SyncedTransaction[],
   const seen = new Set([...(state.income ?? []).map((t) => t.externalId).filter(Boolean), ...(state.transferIds ?? [])]);
   const out: Income[] = [];
   for (const r of rows) {
-    if (seen.has(r.externalId)) continue;
+    if (seen.has(r.externalId) || isTransferLine(r.description, state.transferRules)) continue;
     seen.add(r.externalId);
     out.push({
       id: idFor(),
@@ -72,6 +72,24 @@ export function connectLink(cfg: SyncConfig, owner: string, bank: string, countr
  * Bank rows to import as lines, and the transfers between your own accounts to take out.
  * Transfers already imported as spending or income before both accounts were connected are removed too.
  */
+/**
+ * Transfers between two connected accounts whose two sides came in on different syncs (the server only pairs
+ * rows from one sync). Only unsorted spending from the last ~100 days is considered, so nothing you sorted moves.
+ */
+export function findSyncedTransfers(state: BudgetState, today = new Date()): string[] {
+  const since = new Date(today.getTime() - 100 * 86400_000).toISOString().slice(0, 10);
+  const shape = (t: Transaction | Income): SyncedTransaction => ({
+    externalId: t.externalId!,
+    date: t.date,
+    description: t.description,
+    amount: t.amount,
+    currency: state.currency,
+  });
+  const out = state.transactions.filter((t) => t.externalId?.startsWith('eb:') && !t.categoryId && t.date >= since).map(shape);
+  const inn = state.income.filter((t) => t.externalId?.startsWith('eb:') && t.date >= since).map(shape);
+  return findTransfers(out, inn);
+}
+
 export function applyTransfers(state: BudgetState, transfers: string[]): Pick<BudgetState, 'transactions' | 'income' | 'transferIds'> {
   const ids = new Set(transfers);
   return {

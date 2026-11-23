@@ -23,7 +23,7 @@ import {
 } from '@/components/ui';
 import { Spacing, TypeColors } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { billsCalendar, currentMonth, incomeIn, monthLabel, newId, paymentNote, sortedAlike, transactionsIn } from '@/lib/budget';
+import { billsCalendar, currentMonth, incomeIn, isTransferLine, monthLabel, newId, paymentNote, sortedAlike, transactionsIn, transferRuleFrom } from '@/lib/budget';
 import { downloadCalendar } from '@/lib/calendar-file';
 import { parseRevolutCsv } from '@/lib/revolut-csv';
 import { pickCsvText } from '@/lib/pick-file';
@@ -46,7 +46,7 @@ const TYPE_PICKS: { id: TypePick; label: string }[] = ITEM_TYPES;
 const today = () => new Date().toISOString().slice(0, 10);
 
 export default function SpendingScreen() {
-  const { state, allState, whose, saveTransaction, resortTransaction, unsortTransaction, deleteTransaction, addTransactions, sortTransaction, saveItem, addIncome, saveIncome, deleteIncome } = useBudget();
+  const { state, allState, whose, saveTransaction, resortTransaction, unsortTransaction, deleteTransaction, addTransactions, sortTransaction, markTransfer, undoTransfer, saveItem, addIncome, saveIncome, deleteIncome } = useBudget();
   // When fixing a sorted payment: also fix the others from the same place sorted the same way.
   const [fixOthers, setFixOthers] = useState(true);
   // A bill just added from "to sort", offered for the calendar.
@@ -64,6 +64,16 @@ export default function SpendingScreen() {
   const [learn, setLearn] = useState(true);
   // Half-finished picks in "to sort": a row is sorted once it has both a category and a type.
   const [picks, setPicks] = useState<Record<string, Pick>>({});
+  // The last payment(s) taken out as a transfer, so it can be undone.
+  const [moved, setMoved] = useState<{ removed: Transaction[]; rule?: string } | null>(null);
+  const takeOutAsTransfer = (t: Transaction) => {
+    const rule = learn ? transferRuleFrom(t.description) : undefined;
+    const removed = allState.transactions.filter((x) => x.id === t.id || (rule && !x.categoryId && isTransferLine(x.description, [rule])));
+    markTransfer(t.id, learn);
+    const { [t.id]: _gone, ...rest } = picks;
+    setPicks(rest);
+    setMoved({ removed, rule: rule && !(allState.transferRules ?? []).includes(rule) ? rule : undefined });
+  };
 
   const incomeList = incomeIn(state.income, month).sort((a, b) => b.date.localeCompare(a.date));
   const incomeEditing = incomeDraft?.id ? state.income.find((x) => x.id === incomeDraft.id) : undefined;
@@ -350,10 +360,27 @@ export default function SpendingScreen() {
         </Card>
       ) : null}
 
+      {moved ? (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.two, flexWrap: 'wrap' }}>
+          <ThemedText type="small" themeColor="textSecondary" style={{ flex: 1, minWidth: 200 }}>
+            ↔ Left out {moved.removed.length === 1 ? `"${moved.removed[0].description}"` : `${moved.removed.length} payments`} as money moved between your own accounts
+            {moved.rule ? '. Future ones like it will be left out too.' : '.'}
+          </ThemedText>
+          <Button
+            label="Undo"
+            kind="secondary"
+            onPress={() => {
+              undoTransfer(moved.removed, moved.rule);
+              setMoved(null);
+            }}
+          />
+        </View>
+      ) : null}
+
       {uncategorised.length ? (
         <Card
           title={`${uncategorised.length} to sort`}
-          subtitle="Pick a category and a type for each. Recurring ones also ask how they're paid: Subscription (auto-debited) or Pay myself. With 'remember' on, other payments from the same place are sorted too, now and in future.">
+          subtitle="Pick a category and a type for each. Recurring ones also ask how they're paid: Subscription (auto-debited) or Pay myself. With 'remember' on, other payments from the same place are sorted too, now and in future. Money moved between your own accounts isn't spending: tap Transfer to leave it out.">
           <Pressable onPress={() => setLearn(!learn)} accessibilityRole="checkbox" accessibilityState={{ checked: learn }}>
             <ThemedText type="small">{learn ? '☑' : '☐'} Remember my choices</ThemedText>
           </Pressable>
@@ -371,6 +398,12 @@ export default function SpendingScreen() {
                 onChangeText={(note) => setPicks({ ...picks, [t.id]: { ...picks[t.id], note } })}
                 placeholder="e.g. Netflix for the family"
               />
+              <Pressable
+                onPress={() => takeOutAsTransfer(t)}
+                accessibilityRole="button"
+                style={{ alignSelf: 'flex-start', paddingVertical: Spacing.one, paddingHorizontal: Spacing.three, borderRadius: 999, borderWidth: 1, borderColor: theme.border }}>
+                <ThemedText type="small">↔ Transfer between our accounts</ThemedText>
+              </Pressable>
               <ThemedText type="small" themeColor="textSecondary">
                 Category
               </ThemedText>
