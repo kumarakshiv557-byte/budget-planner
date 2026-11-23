@@ -97,6 +97,8 @@ export type Transaction = {
   source: TransactionSource;
   /** Bank/CSV reference used to skip duplicates on re-import. */
   externalId?: string;
+  /** When you last sorted or fixed it by hand (ISO time), for "Recently sorted". */
+  sortedAt?: string;
 };
 
 /** Money that came in (salary, transfers from others). Amount is positive. */

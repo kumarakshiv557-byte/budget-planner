@@ -341,7 +341,7 @@ export type SortPick = { categoryId: string; subcategoryId?: string; type?: Item
  * Sort one transaction. With `learn`, the merchant's rule remembers the pick (category, and type and
  * payment tag when given) and every other unsorted payment from the same place is sorted the same way.
  */
-export function sortIn(s: BudgetState, id: string, pick: SortPick, learn: boolean): BudgetState {
+export function sortIn(s: BudgetState, id: string, pick: SortPick, learn: boolean, now = new Date().toISOString()): BudgetState {
   const t = s.transactions.find((x) => x.id === id);
   if (!t) return s;
   const { categoryId, subcategoryId, type, payment } = pick;
@@ -367,7 +367,7 @@ export function sortIn(s: BudgetState, id: string, pick: SortPick, learn: boolea
   }
   const set = (x: Transaction): Transaction => {
     const { subcategoryId: _old, ...rest } = x;
-    const out: Transaction = { ...rest, categoryId, ...(subcategoryId ? { subcategoryId } : {}) };
+    const out: Transaction = { ...rest, categoryId, ...(subcategoryId ? { subcategoryId } : {}), sortedAt: now };
     if (type) {
       out.type = type;
       if (isRecurring(type) && payment) out.payment = payment;
@@ -491,15 +491,18 @@ export function sortedAlike(s: BudgetState, t: Transaction): Transaction[] {
  * Correct a sorted payment and, with `alsoOthers`, every payment from the same place that was sorted
  * the same way, and the remembered choice for that place, so future payments land right too.
  */
-export function resortIn(s: BudgetState, fixed: Transaction, alsoOthers: boolean): BudgetState {
+export function resortIn(s: BudgetState, given: Transaction, alsoOthers: boolean, now = new Date().toISOString()): BudgetState {
+  const { sortedAt: _was, ...plain } = given;
+  const fixed: Transaction = given.categoryId ? { ...plain, sortedAt: now } : plain;
   const before = s.transactions.find((x) => x.id === fixed.id);
   if (!before || !alsoOthers) return { ...s, transactions: s.transactions.map((x) => (x.id === fixed.id ? fixed : x)) };
   const alike = new Set(sortedAlike(s, before).map((x) => x.id));
   const match = ruleFrom(fixed.description);
   const apply = (x: Transaction): Transaction => {
-    const { subcategoryId: _s, payment: _p, ...rest } = x;
+    const { subcategoryId: _s, payment: _p, sortedAt: _t, ...rest } = x;
     return {
       ...rest,
+      ...(fixed.sortedAt ? { sortedAt: fixed.sortedAt } : {}),
       categoryId: fixed.categoryId,
       ...(fixed.subcategoryId ? { subcategoryId: fixed.subcategoryId } : {}),
       type: fixed.type,
@@ -527,6 +530,15 @@ export function resortIn(s: BudgetState, fixed: Transaction, alsoOthers: boolean
     rules,
     transactions: s.transactions.map((x) => (x.id === fixed.id ? fixed : alike.has(x.id) ? apply(x) : x)),
   };
+}
+
+/**
+ * Sorted lines, most recently sorted or fixed first (lines sorted before this was tracked fall back to
+ * their date), so a wrong pick can be found and fixed quickly.
+ */
+export function recentlySorted(transactions: Transaction[]): Transaction[] {
+  const key = (t: Transaction) => t.sortedAt ?? t.date;
+  return transactions.filter((t) => t.categoryId).sort((a, b) => key(b).localeCompare(key(a)));
 }
 
 /** Send a payment (and, with `alsoOthers`, those sorted alike from the same place) back to "to sort", forgetting the remembered pick. */
