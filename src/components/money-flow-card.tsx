@@ -3,16 +3,24 @@ import { Pressable, View } from 'react-native';
 
 import { Sankey } from '@/components/sankey';
 import { ThemedText } from '@/components/themed-text';
-import { Card, useCategoryColor, useCategoryLabel, useIsDark, useMoney, WhoseFilter } from '@/components/ui';
+import { Card, Chips, MonthSwitcher, useCategoryColor, useCategoryLabel, useIsDark, useMoney, WhoseFilter } from '@/components/ui';
 import { Spacing, TypeColors } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { OTHER_INCOME, incomeIn, monthLabel, moneyFlow, transactionsIn, type FlowNode } from '@/lib/budget';
+import { OTHER_INCOME, addMonths, monthLabel, incomeInMonths, monthsBetween, moneyFlow, rangeLabel, transactionsInMonths, type FlowNode } from '@/lib/budget';
 import { useBudget } from '@/lib/store';
 import { ITEM_TYPES, type ItemType, type Month } from '@/lib/types';
 
 const TYPE_LABEL = Object.fromEntries(ITEM_TYPES.map((t) => [t.id, t.label])) as Record<ItemType, string>;
 
 /** Overview card: where this month's income went, as a Sankey, with the lines behind a tapped block. */
+type Span = 'month' | '6m' | '12m' | 'custom';
+const SPANS: { id: Span; label: string }[] = [
+  { id: 'month', label: 'This month' },
+  { id: '6m', label: 'Last 6 months' },
+  { id: '12m', label: 'Last year' },
+  { id: 'custom', label: 'Custom' },
+];
+
 export function MoneyFlowCard({ month }: { month: Month }) {
   const { state } = useBudget();
   const theme = useTheme();
@@ -27,7 +35,14 @@ export function MoneyFlowCard({ month }: { month: Month }) {
     setSubPick(null);
   };
 
-  const flow = moneyFlow(state, month);
+  // Timeframe, ending at the month shown at the top of Overview (or any range with Custom).
+  const [span, setSpan] = useState<Span>('month');
+  const [from, setFrom] = useState<Month>(() => addMonths(month, -2));
+  const [to, setTo] = useState<Month>(month);
+  const months =
+    span === 'month' ? [month] : span === '6m' ? monthsBetween(addMonths(month, -5), month) : span === '12m' ? monthsBetween(addMonths(month, -11), month) : monthsBetween(from, to);
+  const period = rangeLabel(months);
+  const flow = moneyFlow(state, months);
   const catName = (id: string) => state.categories.find((c) => c.id === id)?.name ?? 'Uncategorised';
   const catLabel = useCategoryLabel();
   const subName = (id?: string) => (id ? state.subcategories.find((x) => x.id === id)?.name : undefined);
@@ -39,7 +54,7 @@ export function MoneyFlowCard({ month }: { month: Month }) {
       : n.kind === 'gap'
         ? 'Not covered by income'
         : n.kind === 'total'
-          ? monthLabel(month, 'short')
+          ? months.length > 1 ? `${monthLabel(months[0], 'short')} – ${monthLabel(months[months.length - 1], 'short')}` : monthLabel(month, 'short')
           : n.kind === 'category'
             ? catName(n.key)
             : n.kind === 'leftover'
@@ -63,7 +78,7 @@ export function MoneyFlowCard({ month }: { month: Month }) {
   const lines = !node
     ? []
     : node.kind === 'income'
-      ? incomeIn(state.income, month)
+      ? incomeInMonths(state.income, months)
           .filter((i) =>
             node.key === OTHER_INCOME
               ? !topSources.has(i.description.trim().toLowerCase())
@@ -71,7 +86,7 @@ export function MoneyFlowCard({ month }: { month: Month }) {
           )
           .map((i) => ({ id: i.id, note: undefined as string | undefined, label: i.description, sub: i.date, amount: i.amount }))
       : node.kind === 'category' || node.kind === 'type'
-        ? transactionsIn(state.transactions, month)
+        ? transactionsInMonths(state.transactions, months)
             .filter((t) => (node.kind === 'category' ? (t.categoryId ?? 'none') === node.key : t.type === node.key))
             .filter((t) => node.kind !== 'category' || subPick === null || (t.subcategoryId ?? '') === subPick)
             .map((t) => ({
@@ -89,7 +104,7 @@ export function MoneyFlowCard({ month }: { month: Month }) {
     node?.kind === 'category'
       ? (() => {
           const m = new Map<string, { key: string; name: string; total: number; count: number }>();
-          for (const t of transactionsIn(state.transactions, month)) {
+          for (const t of transactionsInMonths(state.transactions, months)) {
             if ((t.categoryId ?? 'none') !== node.key) continue;
             const key = t.subcategoryId ?? '';
             const g = m.get(key) ?? { key, name: subName(t.subcategoryId) ?? 'No subcategory', total: 0, count: 0 };
@@ -105,11 +120,11 @@ export function MoneyFlowCard({ month }: { month: Month }) {
   const note = !node
     ? null
     : node.kind === 'gap'
-      ? `You spent ${money(node.value, true)} more than the income recorded for ${monthLabel(month)}. That came from savings or from income the app hasn't seen yet. Add it on the Spending tab.`
+      ? `You spent ${money(node.value, true)} more than the income recorded for ${period}. That came from savings or from income the app hasn't seen yet. Add it on the Spending tab.`
       : node.kind === 'subscriptions'
         ? `Subscriptions are debited automatically, so they're kept as one block here and listed on their own in the Subscriptions card.`
         : node.kind === 'leftover'
-        ? `${money(node.value, true)} of ${monthLabel(month)}'s income hasn't been spent.`
+        ? `${money(node.value, true)} of the income in ${period} hasn't been spent.`
         : node.kind === 'total'
           ? `Income ${money(flow.income, true)} · spent ${money(flow.spent, true)}.`
           : null;
@@ -117,17 +132,36 @@ export function MoneyFlowCard({ month }: { month: Month }) {
   return (
     <Card
       title="Where your income went"
-      subtitle={`${monthLabel(month)}: income on the left, then categories (subscriptions as one block), then types. Pick whose accounts to show. Tap a block to see what's in it; in a category, tap a subcategory to see its payments.`}>
+      subtitle={`${period}: income on the left, then categories (subscriptions as one block), then types. Pick whose accounts to show. Tap a block to see what's in it; in a category, tap a subcategory to see its payments.`}>
       <WhoseFilter />
+      <Chips options={SPANS} value={span} onChange={(v) => { setSpan(v); select(null); }} />
+      {span === 'custom' ? (
+        <View style={{ gap: Spacing.one }}>
+          {([['From', from, setFrom], ['To', to, setTo]] as const).map(([name, value, set]) => (
+            <View key={name} style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.two }}>
+              <ThemedText type="small" themeColor="textSecondary" style={{ width: 44 }}>
+                {name}
+              </ThemedText>
+              <MonthSwitcher
+                month={value}
+                onChange={(m) => {
+                  set(m);
+                  select(null);
+                }}
+              />
+            </View>
+          ))}
+        </View>
+      ) : null}
       {flow.nodes.length === 0 ? (
         <ThemedText type="small" themeColor="textSecondary">
-          No income or spending recorded for this month yet.
+          No income or spending recorded for {period} yet.
         </ThemedText>
       ) : (
         <>
           {flow.income === 0 ? (
             <ThemedText type="small" themeColor="textSecondary">
-              No income recorded this month. Sync Revolut or add it on the Spending tab.
+              No income recorded for {period}. Sync Revolut or add it on the Spending tab.
             </ThemedText>
           ) : null}
           <Sankey
