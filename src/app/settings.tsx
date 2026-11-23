@@ -121,7 +121,8 @@ function RevolutSyncCard() {
   const theme = useTheme();
   const { config, setConfig, configured, status, busy, message, refreshStatus, connect, syncNow, lastSyncedAt } = useRevolutSync();
   const { allState, setPersonBank } = useBudget();
-  const others = allState.people.filter((p) => p.id !== 'me');
+  // Everyone's bank, you first.
+  const people = [...allState.people].sort((a, b) => (a.id === 'me' ? -1 : b.id === 'me' ? 1 : 0));
   const [copied, setCopied] = useState<string | null>(null);
   // Saved with the household data, so the same bank is used on every screen and after a restart.
   // Until a bank is typed here, show the one they're already connected with.
@@ -129,12 +130,9 @@ function RevolutSyncCard() {
   const bankOf = (id: string) => {
     const p = allState.people.find((x) => x.id === id);
     // A connected bank is what the account itself reports, so it wins over anything picked before.
-    return { bank: connectionOf(id)?.bank ?? p?.bank ?? 'Revolut', country: p?.country ?? 'PT' };
+    return { bank: connectionOf(id)?.bank ?? p?.bank ?? '', country: p?.country ?? 'PT' };
   };
   const fmt = (iso: string) => new Date(iso).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' });
-  const mine = connectionOf('me');
-  const myBank = mine ? `${mine.bankName ?? mine.bank}${mine.bic ? ` · SWIFT ${mine.bic}` : ''}` : '';
-  const daysLeft = status?.validUntil ? Math.ceil((new Date(status.validUntil).getTime() - Date.now()) / 86400_000) : null;
 
   return (
     <Card
@@ -160,25 +158,16 @@ function RevolutSyncCard() {
         />
       </View>
       <View style={[styles.row, { marginTop: Spacing.three }]}>
-        <Button label={busy === 'connect' ? 'Opening…' : 'Connect my Revolut'} onPress={() => connect()} disabled={!configured || !!busy} />
         <Button label={busy === 'status' ? 'Checking…' : 'Check connection'} kind="secondary" onPress={refreshStatus} disabled={!configured || !!busy} />
         <Button label={busy === 'sync' ? 'Syncing…' : 'Sync now'} kind="secondary" onPress={syncNow} disabled={!configured || !!busy} />
       </View>
-      {status ? (
-        <ThemedText type="small" style={{ marginTop: Spacing.two, color: status.connected ? theme.text : theme.critical }}>
-          {status.connected
-            ? `✓ Connected${myBank ? ` to ${myBank}` : ''}${status.accounts?.length ? ` (${status.accounts.map((a) => a.currency ?? a.name).join(', ')})` : ''}. ` +
-              (daysLeft != null ? `Revolut access lasts ${daysLeft} more day${daysLeft === 1 ? '' : 's'}, then press Connect again.` : '')
-            : '⚠ Not connected. Press "Connect Revolut".'}
-        </ThemedText>
-      ) : null}
-      {others.map((p) => {
+      {people.map((p) => {
         const c = connectionOf(p.id);
         const b = bankOf(p.id);
         const link = connectLink(config, p.id, b.bank, b.country);
         return (
           <View key={p.id} style={{ gap: Spacing.two, paddingTop: Spacing.three, marginTop: Spacing.two, borderTopWidth: 1, borderColor: theme.border }}>
-            <ThemedText type="smallBold">{p.name}&apos;s bank</ThemedText>
+            <ThemedText type="smallBold">{p.id === 'me' ? 'Your bank' : `${p.name}'s bank`}</ThemedText>
             {c ? (
               <>
                 <ThemedText type="small">
@@ -190,7 +179,9 @@ function RevolutSyncCard() {
             ) : (
               <>
                 <ThemedText type="small" themeColor="textSecondary">
-                  Not connected. {p.name} approves it on their own phone: send them the link, or connect here while they sign in.
+                  {p.id === 'me'
+                    ? 'Not connected. Choose your bank, then connect here and approve it in your banking app.'
+                    : `Not connected. ${p.name} approves it on their own phone: choose their bank, then send them the link or connect here while they sign in.`}
                 </ThemedText>
                 <BankPicker
                   config={config}
@@ -205,11 +196,11 @@ function RevolutSyncCard() {
               </>
             )}
             <View style={styles.row}>
-              {Platform.OS === 'web' ? (
+              {Platform.OS === 'web' && p.id !== 'me' ? (
                 <Button
-                  label={copied === p.id ? `${b.bank.trim() || 'Revolut'} link copied ✓` : `Copy ${c ? 'reconnect' : b.bank.trim() || 'Revolut'} link for ${p.name}`}
+                  label={copied === p.id ? 'Link copied ✓' : `Copy ${c ? 'reconnect' : b.bank || 'bank'} link for ${p.name}`}
                   kind="secondary"
-                  disabled={!configured}
+                  disabled={!configured || !b.bank}
                   onPress={() =>
                     navigator.clipboard
                       ?.writeText(link)
@@ -222,7 +213,7 @@ function RevolutSyncCard() {
                 label={busy === 'connect' ? 'Opening…' : c ? 'Reconnect here' : 'Connect here'}
                 kind="secondary"
                 onPress={() => connect({ owner: p.id, bank: b.bank, country: b.country })}
-                disabled={!configured || !!busy}
+                disabled={!configured || !!busy || !b.bank}
               />
             </View>
           </View>
@@ -286,7 +277,7 @@ function BankPicker(props: { config: SyncConfig; enabled: boolean; bank: string;
   return (
     <View style={{ gap: Spacing.two }}>
       <View style={styles.row}>
-        <ReadOnly label="Bank" value={bank} />
+        <ReadOnly label="Bank" value={bank || 'Not chosen yet'} />
         <Field
           label="Country (2 letters)"
           value={country}
