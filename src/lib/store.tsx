@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AppState, Platform } from 'react-native';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
-import { forPerson, markTransferIn, tagIncomeIn, tagNewIncome, newId, recategorizeIn, resortIn, ruleFrom, sortIn, unmarkTransferIn, unsortIn, type SortPick } from './budget.ts';
+import { forPerson, forgetTransferRuleIn, markTransferIn, putBackTransferIn, tagIncomeIn, tagNewIncome, newId, recategorizeIn, resortIn, ruleFrom, sortIn, unmarkTransferIn, unsortIn, type SortPick } from './budget.ts';
 import { cloudApi, decide, type CloudMeta, type CloudStatus } from './cloud.ts';
 import { initialState, migrate } from './defaults.ts';
 import { applyTransfers, SYNC_CONFIG_KEY, type SyncConfig } from './sync.ts';
@@ -39,7 +39,7 @@ type Actions = {
    * bank rows of money moved between the household's accounts: they are taken out and never imported.
    * `owners` are whose connections were read.
    */
-  applySync: (ts: Transaction[], at: string, income?: Income[], transfers?: string[], owners?: string[], details?: Record<string, NonNullable<Transaction['details']>>) => void;
+  applySync: (ts: Transaction[], at: string, income?: Income[], transfers?: string[], owners?: string[], details?: Record<string, NonNullable<Transaction['details']>>, reread?: boolean) => void;
   saveIncome: (i: Omit<Income, 'id'> & { id?: string }) => void;
   deleteIncome: (id: string) => void;
   addIncome: (list: Income[]) => void;
@@ -52,6 +52,10 @@ type Actions = {
   /** Take a payment out because it only moved money between your own accounts (with `learn`, remember it). */
   markTransfer: (id: string, learn: boolean) => void;
   undoTransfer: (removed: Transaction[], rule?: string) => void;
+  /** Put back a line taken out as a transfer (and, if asked, stop treating payments like it as transfers). */
+  putBackTransfer: (lineId: string, forgetRule: boolean) => void;
+  /** Stop treating payments matching this text as transfers; the next sync brings back what was left out. */
+  forgetTransferRule: (rule: string) => void;
   /** Adds a subcategory and returns its id. */
   addSubcategory: (categoryId: string, name: string) => string;
   renameSubcategory: (id: string, name: string) => void;
@@ -240,7 +244,7 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
       unsortTransaction: (id, alsoOthers) => update((s) => unsortIn(s, id, alsoOthers)),
       deleteTransaction: (id) => update((s) => ({ ...s, transactions: s.transactions.filter((t) => t.id !== id) })),
       addTransactions: (ts) => update((s) => ({ ...s, transactions: [...s.transactions, ...ts] })),
-      applySync: (ts, at, income, transfers = [], owners, details) =>
+      applySync: (ts, at, income, transfers = [], owners, details, reread) =>
         update((s) => {
           const withDetails = details
             ? s.transactions.map((t) => (t.externalId && details[t.externalId] && !t.details ? { ...t, details: details[t.externalId] } : t))
@@ -249,6 +253,7 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
             ...s,
             lastSyncedAt: at,
             ...(details ? { detailsBackfilled: true } : {}),
+            ...(reread ? { rereadAll: false } : {}),
             transactions: [...withDetails, ...ts],
             ...(income ? { income: [...s.income, ...tagNewIncome(s, income)], incomeBackfilled: true } : {}),
             ...(owners ? { syncedOwners: [...new Set([...(s.syncedOwners ?? []), ...owners])] } : {}),
@@ -268,6 +273,8 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
       sortTransaction: (id, pick, learn) => update((s) => sortIn(s, id, pick, learn)),
       markTransfer: (id, learn) => update((s) => markTransferIn(s, id, learn)),
       undoTransfer: (removed, rule) => update((s) => unmarkTransferIn(s, removed, rule)),
+      putBackTransfer: (lineId, forgetRule) => update((s) => putBackTransferIn(s, lineId, forgetRule)),
+      forgetTransferRule: (rule) => update((s) => forgetTransferRuleIn(s, rule)),
       addSubcategory: (categoryId, name) => {
         const id = newId();
         update((s) => ({ ...s, subcategories: [...s.subcategories, { id, categoryId, name: name.trim() }] }));

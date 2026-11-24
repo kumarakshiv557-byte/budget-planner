@@ -157,6 +157,10 @@ export type BudgetState = {
   incomeRules?: IncomeRule[];
   /** Text of payments you marked as moving money between your own accounts ("p/ akshiv kumar"); such lines are never imported. */
   transferRules?: string[];
+  /** Lines you took out as transfers, kept so they can be put back from "Recently sorted" (newest last). */
+  transferred?: { line: Transaction; rule?: string; at: string }[];
+  /** The next sync re-reads the full ~90 days (to bring back lines that were left out). */
+  rereadAll?: boolean;
   /** Owners whose bank connection has been synced at least once (a new one gets its full history). */
   syncedOwners?: string[];
   /** True once Revolut income has been fetched for the full ~90-day window. */
