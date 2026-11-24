@@ -92,7 +92,8 @@ export function useRevolutSync() {
         const fullFor = s.people.map((p) => p.id).filter((id) => !synced.includes(id));
         // Once, re-read the full window so lines synced before bank details were kept get them too.
         const refill = !s.detailsBackfilled && !!s.lastSyncedAt;
-        const res = await syncApi.sync(config, s.incomeBackfilled && !refill ? nextDateFrom(s.lastSyncedAt) : undefined, fullFor);
+        const reread = !!s.rereadAll;
+        const res = await syncApi.sync(config, s.incomeBackfilled && !refill && !reread ? nextDateFrom(s.lastSyncedAt) : undefined, fullFor);
         const added = mergeSynced(s, res.transactions, newId);
         const income = res.income ? mergeSyncedIncome(s, res.income, newId) : undefined;
         // Also pair up the two sides of a transfer that arrived on different syncs.
@@ -102,7 +103,7 @@ export function useRevolutSync() {
         const removed = transfers.filter((id) => known.has(id)).length;
         // Only count the refill as done when every connected bank was read.
         const details = refill && !(res.problems ?? []).length ? detailsFor(s, res.transactions) : !s.lastSyncedAt ? {} : undefined;
-        applySync(added, new Date().toISOString(), income, transfers, res.owners ?? ['me'], details);
+        applySync(added, new Date().toISOString(), income, transfers, res.owners ?? ['me'], details, reread && !(res.problems ?? []).length);
         setStatus((st) => ({ ...(st ?? { connected: true }), connected: true, validUntil: res.validUntil }));
         loadStatus();
         const parts = [];

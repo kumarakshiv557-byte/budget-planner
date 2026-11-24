@@ -88,7 +88,7 @@ function BankDetails({ d }: { d?: TxDetails }) {
 }
 
 export default function SpendingScreen() {
-  const { state, allState, whose, saveTransaction, resortTransaction, unsortTransaction, deleteTransaction, addTransactions, sortTransaction, markTransfer, undoTransfer, addSubcategory, saveItem, addIncome, saveIncome, deleteIncome, tagIncome } = useBudget();
+  const { state, allState, whose, saveTransaction, resortTransaction, unsortTransaction, deleteTransaction, addTransactions, sortTransaction, markTransfer, undoTransfer, putBackTransfer, forgetTransferRule, addSubcategory, saveItem, addIncome, saveIncome, deleteIncome, tagIncome } = useBudget();
   // When fixing a sorted payment: also fix the others from the same place sorted the same way.
   const [fixOthers, setFixOthers] = useState(true);
   // A bill just added from "to sort", offered for the calendar.
@@ -233,6 +233,8 @@ export default function SpendingScreen() {
     setDraft({ ...t, amount: String(t.amount) });
   };
   const recent = recentCount ? recentlySorted(state.transactions) : [];
+  const transferredList = [...(state.transferred ?? [])].reverse();
+  const oldTransferRules = (allState.transferRules ?? []).filter((r) => !(allState.transferred ?? []).some((x) => x.rule === r));
   // For quick sorting: every category, each followed by its subcategories ("s:" ids).
   // Quick sorting shows categories only; a picked category's subcategories appear under it.
   const sortOptions = state.categories.map((c) => ({ id: `c:${c.id}`, label: c.name }));
@@ -500,6 +502,38 @@ export default function SpendingScreen() {
             recent.slice(0, recentCount).map((t) => lineRow(t, 'recent', t.sortedAt ? `${sortedWhen(t.sortedAt)} · paid ${t.date}` : t.date))
           )}
           {recent.length > recentCount ? <Button label="Show more" kind="secondary" onPress={() => setRecentCount(recentCount + 15)} /> : null}
+          {transferredList.length || oldTransferRules.length ? (
+            <View style={{ gap: Spacing.one, marginTop: Spacing.three }}>
+              <ThemedText type="smallBold">↔ Marked as transfers</ThemedText>
+              <ThemedText type="small" themeColor="textSecondary">
+                Left out of spending as money moved between your own accounts. Put one back if that was a mistake; payments like it are then imported again too.
+              </ThemedText>
+              {transferredList.map(({ line, rule }) => (
+                <View key={line.id} style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.two, paddingVertical: Spacing.two, borderTopWidth: 1, borderColor: theme.border }}>
+                  <View style={{ flex: 1 }}>
+                    <ThemedText type="small">{line.description}</ThemedText>
+                    <ThemedText type="small" themeColor="textSecondary">
+                      {line.date} · {money(line.amount, true)}
+                      {personTag(line)}
+                      {rule ? ` · remembered as "${rule}"` : ''}
+                    </ThemedText>
+                  </View>
+                  <Button label="Put back" kind="secondary" onPress={() => putBackTransfer(line.id, true)} />
+                </View>
+              ))}
+              {oldTransferRules.map((rule) => (
+                <View key={rule} style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.two, paddingVertical: Spacing.two, borderTopWidth: 1, borderColor: theme.border }}>
+                  <View style={{ flex: 1 }}>
+                    <ThemedText type="small">Anything matching “{rule}”</ThemedText>
+                    <ThemedText type="small" themeColor="textSecondary">
+                      Marked before this list existed. Putting it back brings those payments in again on your next sync.
+                    </ThemedText>
+                  </View>
+                  <Button label="Put back" kind="secondary" onPress={() => forgetTransferRule(rule)} />
+                </View>
+              ))}
+            </View>
+          ) : null}
         </Card>
       ) : null}
 

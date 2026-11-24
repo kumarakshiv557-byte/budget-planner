@@ -539,3 +539,21 @@ test('a remark given while sorting stays on that payment only', () => {
   assert.equal(s.transactions.find((t) => t.id === 'b')?.remark, undefined);
   assert.equal(s.transactions.find((t) => t.id === 'b')?.categoryId, 'essentials');
 });
+
+test('a line marked as a transfer by mistake can be put back, and its rule forgotten', async () => {
+  const { putBackTransferIn, forgetTransferRuleIn } = await import('./budget.ts');
+  const tx = (id: string, description: string) => ({ id, date: '2026-11-01', description, amount: 9, categoryId: null, type: 'variable-one-time' as const, source: 'revolut' as const, externalId: `eb:x:${id}` });
+  let s: BudgetState = { ...initialState(), transactions: [tx('a', 'Cash at Pepe dos Frangos'), tx('b', 'Lidl')], transferRules: ['p/ poonam kumari'], transferIds: ['eb:x:old'] };
+  s = markTransferIn(s, 'a', true);
+  assert.equal(s.transferred?.length, 1);
+  assert.ok(s.transferRules?.includes('cash at pepe dos frangos'));
+  s = putBackTransferIn(s, 'a', true);
+  assert.deepEqual(s.transactions.map((t) => t.id).sort(), ['a', 'b']);
+  assert.equal(s.transferred?.length, 0);
+  assert.deepEqual(s.transferRules, ['p/ poonam kumari']);
+  assert.deepEqual(s.transferIds, ['eb:x:old']);
+  s = forgetTransferRuleIn(s, 'p/ poonam kumari');
+  assert.deepEqual(s.transferRules, []);
+  assert.deepEqual(s.transferIds, []);
+  assert.equal(s.rereadAll, true);
+});

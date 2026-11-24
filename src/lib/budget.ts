@@ -669,9 +669,11 @@ export function markTransferIn(s: BudgetState, id: string, learn: boolean): Budg
   const gone = s.transactions.filter((x) => x.id === id || (rule && !x.categoryId && isTransferLine(x.description, [rule])));
   const ids = new Set(gone.map((x) => x.id));
   const ext = gone.map((x) => x.externalId).filter((x): x is string => !!x);
+  const at = new Date().toISOString();
   return {
     ...s,
     transactions: s.transactions.filter((x) => !ids.has(x.id)),
+    transferred: [...(s.transferred ?? []), ...gone.map((line) => ({ line, ...(rule ? { rule } : {}), at }))].slice(-300),
     transferIds: [...new Set([...(s.transferIds ?? []), ...ext])].slice(-2000),
     ...(rule ? { transferRules: rules.includes(rule) ? rules : [...rules, rule] } : {}),
   };
@@ -685,6 +687,28 @@ export function unmarkTransferIn(s: BudgetState, removed: Transaction[], rule?: 
     ...s,
     transactions: [...s.transactions, ...removed.filter((x) => !have.has(x.id))],
     transferIds: (s.transferIds ?? []).filter((x) => !ext.has(x)),
+    transferred: (s.transferred ?? []).filter((x) => !have.has(x.line.id) && !removed.some((r) => r.id === x.line.id)),
     ...(rule ? { transferRules: (s.transferRules ?? []).filter((r) => r !== rule) } : {}),
+  };
+}
+
+/** Put back one line taken out as a transfer; with `forgetRule`, future payments like it are imported again too. */
+export function putBackTransferIn(s: BudgetState, lineId: string, forgetRule: boolean): BudgetState {
+  const entry = (s.transferred ?? []).find((x) => x.line.id === lineId);
+  if (!entry) return s;
+  return unmarkTransferIn(s, [entry.line], forgetRule ? entry.rule : undefined);
+}
+
+/**
+ * Forget a remembered transfer rule whose lines weren't kept (marked before "Recently sorted" kept them). Bank lines
+ * left out that aren't kept here are let back in, and the next sync re-reads ~90 days so they come back.
+ */
+export function forgetTransferRuleIn(s: BudgetState, rule: string): BudgetState {
+  const kept = new Set((s.transferred ?? []).map((x) => x.line.externalId).filter(Boolean));
+  return {
+    ...s,
+    transferRules: (s.transferRules ?? []).filter((r) => r !== rule),
+    transferIds: (s.transferIds ?? []).filter((x) => kept.has(x)),
+    rereadAll: true,
   };
 }
