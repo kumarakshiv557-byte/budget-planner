@@ -37,7 +37,7 @@ type IncomeDraft = { id?: string; date: string; description: string; amount: str
 const TYPE_LABEL = Object.fromEntries(ITEM_TYPES.map((t) => [t.id, t.label]));
 /** Type choices when sorting, with a one-tap "Subscription" (recurring, fixed, debited automatically) first. */
 type TypePick = ItemType;
-type Pick = { cat?: string; type?: TypePick; pay?: Payment; due?: string; note?: string };
+type Pick = { cat?: string; type?: TypePick; pay?: Payment; due?: string; note?: string; remark?: string };
 const PAY_PICKS: { id: Payment; label: string }[] = [
   { id: 'auto', label: '⚡ Subscription (auto-debited)' },
   { id: 'manual', label: 'Pay myself' },
@@ -266,7 +266,7 @@ export default function SpendingScreen() {
     const categoryId = sc ? sc.categoryId : next.cat!.slice(2);
     const type = next.type!;
     const payment = recurring ? next.pay : undefined;
-    sortTransaction(t.id, { categoryId, subcategoryId: sc?.id, type, payment, note: next.note }, learn);
+    sortTransaction(t.id, { categoryId, subcategoryId: sc?.id, type, payment, note: next.note, remark: next.remark }, learn);
     if (payment === 'manual') {
       const name = (next.note?.trim() || t.description).slice(0, 60);
       const exists = state.items.some((i) => i.payment === 'manual' && i.name.trim().toLowerCase() === name.toLowerCase());
@@ -524,6 +524,12 @@ export default function SpendingScreen() {
                 value={picks[t.id]?.note ?? ''}
                 onChangeText={(note) => setPicks({ ...picks, [t.id]: { ...picks[t.id], note } })}
                 placeholder="e.g. Netflix for the family"
+              />
+              <Field
+                label="Remark (just this payment, not remembered)"
+                value={picks[t.id]?.remark ?? ''}
+                onChangeText={(remark) => setPicks({ ...picks, [t.id]: { ...picks[t.id], remark } })}
+                placeholder="e.g. Split with Ana, she owes me half"
               />
               <Pressable
                 onPress={() => takeOutAsTransfer(t)}

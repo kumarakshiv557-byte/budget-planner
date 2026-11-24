@@ -523,10 +523,19 @@ test('income tags are remembered per sender and used for new lines and the money
   s = tagIncomeIn(s, 'a', 'Salary', 'Job', true);
   assert.equal(s.income.find((x) => x.id === 'b')?.tag, 'Salary');
   assert.equal(s.income.find((x) => x.id === 'c')?.tag, undefined);
-  const [n] = tagNewIncome(s, [inc('d', '2026-12-01', 'ACME LDA salario dez', 2000)]);
+  const [n] = tagNewIncome(s, [inc('d', '2026-12-01', 'ACME LDA salario dez', 2000) as import('./types.ts').Income]);
   assert.deepEqual([n.tag, n.note], ['Salary', 'Job']);
   s = tagIncomeIn(s, 'c', 'Dinner payback', undefined, true);
   assert.ok(incomeTagsOf(s).includes('Dinner payback'));
   const f = moneyFlow(s, '2026-11');
   assert.deepEqual(f.nodes.filter((x) => x.kind === 'income').map((x) => x.key), ['Salary', 'Dinner payback']);
+});
+
+test('a remark given while sorting stays on that payment only', () => {
+  const tx = (id: string) => ({ id, date: '2026-11-01', description: 'Lidl Lisboa', amount: 5, categoryId: null, type: 'variable-one-time' as const, source: 'revolut' as const });
+  let s: BudgetState = { ...initialState(), rules: [], transactions: [tx('a'), tx('b')] };
+  s = sortIn(s, 'a', { categoryId: 'essentials', type: 'variable-one-time', remark: ' for the party ' }, true);
+  assert.equal(s.transactions.find((t) => t.id === 'a')?.remark, 'for the party');
+  assert.equal(s.transactions.find((t) => t.id === 'b')?.remark, undefined);
+  assert.equal(s.transactions.find((t) => t.id === 'b')?.categoryId, 'essentials');
 });

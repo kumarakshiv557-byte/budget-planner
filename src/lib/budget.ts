@@ -423,7 +423,7 @@ export function ruleFrom(description: string) {
  * as a rule and sort every other still-unsorted transaction from the same merchant the same way.
  */
 /** What you pick for a payment in "to sort". */
-export type SortPick = { categoryId: string; subcategoryId?: string; type?: ItemType; payment?: Payment; note?: string };
+export type SortPick = { categoryId: string; subcategoryId?: string; type?: ItemType; payment?: Payment; note?: string; /** One-off remark for this payment only; never remembered. */ remark?: string };
 
 /**
  * Sort one transaction. With `learn`, the merchant's rule remembers the pick (category, and type and
@@ -434,6 +434,7 @@ export function sortIn(s: BudgetState, id: string, pick: SortPick, learn: boolea
   if (!t) return s;
   const { categoryId, subcategoryId, type, payment } = pick;
   const note = pick.note?.trim() || undefined;
+  const remark = pick.remark?.trim() || undefined;
   const match = learn ? ruleFrom(t.description) : '';
   let rules = s.rules;
   if (match) {
@@ -462,6 +463,7 @@ export function sortIn(s: BudgetState, id: string, pick: SortPick, learn: boolea
       else delete out.payment;
     }
     if (note) out.note = note;
+    if (remark && x.id === id) out.remark = remark;
     return out;
   };
   return {
