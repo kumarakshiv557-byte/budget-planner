@@ -37,7 +37,7 @@ type IncomeDraft = { id?: string; date: string; description: string; amount: str
 const TYPE_LABEL = Object.fromEntries(ITEM_TYPES.map((t) => [t.id, t.label]));
 /** Type choices when sorting, with a one-tap "Subscription" (recurring, fixed, debited automatically) first. */
 type TypePick = ItemType;
-type Pick = { cat?: string; type?: TypePick; pay?: Payment; due?: string; note?: string; remark?: string };
+type Pick = { cat?: string; type?: TypePick; pay?: Payment; due?: string; note?: string; remark?: string; /** Typing a new subcategory (null = closed). */ newSub?: string | null };
 const PAY_PICKS: { id: Payment; label: string }[] = [
   { id: 'auto', label: '⚡ Subscription (auto-debited)' },
   { id: 'manual', label: 'Pay myself' },
@@ -88,7 +88,7 @@ function BankDetails({ d }: { d?: TxDetails }) {
 }
 
 export default function SpendingScreen() {
-  const { state, allState, whose, saveTransaction, resortTransaction, unsortTransaction, deleteTransaction, addTransactions, sortTransaction, markTransfer, undoTransfer, saveItem, addIncome, saveIncome, deleteIncome, tagIncome } = useBudget();
+  const { state, allState, whose, saveTransaction, resortTransaction, unsortTransaction, deleteTransaction, addTransactions, sortTransaction, markTransfer, undoTransfer, addSubcategory, saveItem, addIncome, saveIncome, deleteIncome, tagIncome } = useBudget();
   // When fixing a sorted payment: also fix the others from the same place sorted the same way.
   const [fixOthers, setFixOthers] = useState(true);
   // A bill just added from "to sort", offered for the calendar.
@@ -546,9 +546,38 @@ export default function SpendingScreen() {
                 swatch={sortSwatch}
                 onChange={(cat) => pickFor(t, { cat })}
               />
-              {subOptions(catOfPick(picks[t.id]?.cat)).length ? (
-                <View style={{ paddingLeft: Spacing.three }}>
-                  <Chips options={subOptions(catOfPick(picks[t.id]?.cat))} value={picks[t.id]?.cat ?? null} onChange={(cat) => pickFor(t, { cat })} />
+              {catOfPick(picks[t.id]?.cat) ? (
+                <View style={{ paddingLeft: Spacing.three, gap: Spacing.one }}>
+                  <ThemedText type="small" themeColor="textSecondary">
+                    Subcategory (optional)
+                  </ThemedText>
+                  <Chips
+                    options={[...subOptions(catOfPick(picks[t.id]?.cat)), { id: 'new', label: '+ New subcategory' }]}
+                    value={picks[t.id]?.newSub != null ? 'new' : (picks[t.id]?.cat ?? null)}
+                    onChange={(cat) =>
+                      cat === 'new' ? setPicks({ ...picks, [t.id]: { ...picks[t.id], newSub: '' } }) : pickFor(t, { cat, newSub: null })
+                    }
+                  />
+                  {picks[t.id]?.newSub != null ? (
+                    <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: Spacing.two }}>
+                      <Field
+                        label={`New subcategory in ${state.categories.find((c) => c.id === catOfPick(picks[t.id]?.cat))?.name ?? 'this category'}`}
+                        value={picks[t.id]?.newSub ?? ''}
+                        onChangeText={(newSub) => setPicks({ ...picks, [t.id]: { ...picks[t.id], newSub } })}
+                        placeholder="e.g. Groceries"
+                      />
+                      <Button
+                        label="Add"
+                        disabled={!picks[t.id]?.newSub?.trim()}
+                        onPress={() => {
+                          const catId = catOfPick(picks[t.id]?.cat)!;
+                          const id = addSubcategory(catId, picks[t.id]!.newSub!);
+                          // Picked, but not sorted yet: the type is still to choose.
+                          setPicks({ ...picks, [t.id]: { ...picks[t.id], cat: `s:${id}`, newSub: null } });
+                        }}
+                      />
+                    </View>
+                  ) : null}
                 </View>
               ) : null}
               <ThemedText type="small" themeColor="textSecondary">

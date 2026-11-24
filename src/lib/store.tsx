@@ -52,7 +52,8 @@ type Actions = {
   /** Take a payment out because it only moved money between your own accounts (with `learn`, remember it). */
   markTransfer: (id: string, learn: boolean) => void;
   undoTransfer: (removed: Transaction[], rule?: string) => void;
-  addSubcategory: (categoryId: string, name: string) => void;
+  /** Adds a subcategory and returns its id. */
+  addSubcategory: (categoryId: string, name: string) => string;
   renameSubcategory: (id: string, name: string) => void;
   deleteSubcategory: (id: string) => void;
   updateCategory: (id: string, patch: Partial<Pick<Category, 'name'>>) => void;
@@ -267,8 +268,11 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
       sortTransaction: (id, pick, learn) => update((s) => sortIn(s, id, pick, learn)),
       markTransfer: (id, learn) => update((s) => markTransferIn(s, id, learn)),
       undoTransfer: (removed, rule) => update((s) => unmarkTransferIn(s, removed, rule)),
-      addSubcategory: (categoryId, name) =>
-        update((s) => ({ ...s, subcategories: [...s.subcategories, { id: newId(), categoryId, name: name.trim() }] })),
+      addSubcategory: (categoryId, name) => {
+        const id = newId();
+        update((s) => ({ ...s, subcategories: [...s.subcategories, { id, categoryId, name: name.trim() }] }));
+        return id;
+      },
       renameSubcategory: (id, name) =>
         update((s) => ({ ...s, subcategories: s.subcategories.map((c) => (c.id === id ? { ...c, name } : c)) })),
       deleteSubcategory: (id) =>
