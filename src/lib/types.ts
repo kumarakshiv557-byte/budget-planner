@@ -124,10 +124,12 @@ export type Income = {
   tag?: string;
   /** Your own note on what it was for. Remembered per sender with the tag. */
   note?: string;
+  /** A finer label under the tag (tag "MBWay", sub-tag "Ahmed"). Remembered per sender with the tag. */
+  subTag?: string;
 };
 
 /** "Money in from anyone matching this text gets this tag (and note)." */
-export type IncomeRule = { match: string; tag: string; note?: string };
+export type IncomeRule = { match: string; tag: string; subTag?: string; note?: string };
 
 /** Starter income tags; you can add your own. */
 export const DEFAULT_INCOME_TAGS = ['Salary', 'Side work', 'Refund', 'Family', 'Gift', 'Interest', 'Other'];

@@ -6,7 +6,7 @@ import { ThemedText } from '@/components/themed-text';
 import { Card, Chips, MonthSwitcher, useCategoryColor, useCategoryLabel, useIsDark, useMoney, WhoseFilter } from '@/components/ui';
 import { Spacing, TypeColors } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { OTHER_INCOME, addMonths, incomeSourceOf, monthLabel, incomeInMonths, monthsBetween, moneyFlow, rangeLabel, transactionsInMonths, type FlowNode } from '@/lib/budget';
+import { OTHER_INCOME, addMonths, incomeSourceOf, incomeTagLabel, monthLabel, incomeInMonths, monthsBetween, moneyFlow, rangeLabel, transactionsInMonths, type FlowNode } from '@/lib/budget';
 import { useBudget } from '@/lib/store';
 import { ITEM_TYPES, type ItemType, type Month } from '@/lib/types';
 
@@ -30,9 +30,19 @@ export function MoneyFlowCard({ month }: { month: Month }) {
   const [selected, setSelected] = useState<string | null>(null);
   // Inside a tapped category: the subcategory being looked at ('' = no subcategory), or null for all.
   const [subPick, setSubPick] = useState<string | null>(null);
+  // The income tag split into its sub-tags on the chart (tapping a tag splits it; tapping elsewhere joins it back).
+  const [expanded, setExpanded] = useState<string | null>(null);
   const select = (id: string | null) => {
+    const n = id ? flow.nodes.find((x) => x.id === id) : undefined;
+    if (!id && expanded && subPick !== null) return setSubPick(null);
+    if (n?.kind === 'income' && n.sub !== undefined) {
+      setSelected(`in:${n.key}`);
+      setSubPick(subPick === n.sub ? null : n.sub);
+      return;
+    }
     setSelected(id);
     setSubPick(null);
+    setExpanded(n?.kind === 'income' && n.key !== OTHER_INCOME ? n.key : null);
   };
 
   // Timeframe, ending at the month shown at the top of Overview (or any range with Custom).
@@ -42,7 +52,7 @@ export function MoneyFlowCard({ month }: { month: Month }) {
   const months =
     span === 'month' ? [month] : span === '6m' ? monthsBetween(addMonths(month, -5), month) : span === '12m' ? monthsBetween(addMonths(month, -11), month) : monthsBetween(from, to);
   const period = rangeLabel(months);
-  const flow = moneyFlow(state, months);
+  const flow = moneyFlow(state, months, 5, { expand: expanded ?? undefined });
   const catName = (id: string) => state.categories.find((c) => c.id === id)?.name ?? 'Uncategorised';
   const catLabel = useCategoryLabel();
   const subName = (id?: string) => (id ? state.subcategories.find((x) => x.id === id)?.name : undefined);
@@ -50,7 +60,9 @@ export function MoneyFlowCard({ month }: { month: Month }) {
     n.kind === 'income'
       ? n.key === OTHER_INCOME
         ? 'Other income'
-        : n.key
+        : n.sub !== undefined
+          ? `${n.key} › ${n.sub || 'no sub-tag'}`
+          : n.key
       : n.kind === 'gap'
         ? 'Not covered by income'
         : n.kind === 'total'
@@ -73,7 +85,12 @@ export function MoneyFlowCard({ month }: { month: Month }) {
             ? colorFor(state.categories.find((c) => c.id === n.key))
             : TypeColors[n.key as ItemType][dark ? 1 : 0];
 
-  const node = flow.nodes.find((n) => n.id === selected);
+  const pieces = flow.nodes.filter((n) => n.kind === 'income' && n.sub !== undefined);
+  const node =
+    flow.nodes.find((n) => n.id === selected) ??
+    (expanded && selected === `in:${expanded}` && pieces.length
+      ? ({ id: selected, kind: 'income', key: expanded, column: 0, value: pieces.reduce((s, n) => s + n.value, 0) } satisfies FlowNode)
+      : undefined);
   const topSources = new Set(flow.nodes.filter((n) => n.kind === 'income').map((n) => n.key.toLowerCase()));
   const lines = !node
     ? []
@@ -84,7 +101,8 @@ export function MoneyFlowCard({ month }: { month: Month }) {
               ? !topSources.has(incomeSourceOf(i).toLowerCase())
               : incomeSourceOf(i).toLowerCase() === node.key.toLowerCase(),
           )
-          .map((i) => ({ id: `${i.id}:${i.date}`, note: i.note, label: i.description, sub: i.tag ? `${i.date} · ${i.tag}` : i.date, amount: i.amount }))
+          .filter((i) => subPick === null || (i.subTag ?? '') === subPick)
+          .map((i) => ({ id: `${i.id}:${i.date}`, note: i.note, label: i.description, sub: i.tag ? `${i.date} · ${incomeTagLabel(i)}` : i.date, amount: i.amount }))
       : node.kind === 'category' || node.kind === 'type'
         ? transactionsInMonths(state.transactions, months)
             .filter((t) => (node.kind === 'category' ? (t.categoryId ?? 'none') === node.key : t.type === node.key))
@@ -115,7 +133,21 @@ export function MoneyFlowCard({ month }: { month: Month }) {
           const list = [...m.values()].sort((a, b) => b.total - a.total);
           return list.some((g) => g.key) ? list : [];
         })()
-      : [];
+      : node?.kind === 'income' && node.key !== OTHER_INCOME
+        ? (() => {
+            const m = new Map<string, { key: string; name: string; total: number; count: number }>();
+            for (const i of incomeInMonths(state.income, months)) {
+              if (incomeSourceOf(i).toLowerCase() !== node.key.toLowerCase()) continue;
+              const key = i.subTag ?? '';
+              const g = m.get(key) ?? { key, name: i.subTag || 'No sub-tag', total: 0, count: 0 };
+              g.total += i.amount;
+              g.count++;
+              m.set(key, g);
+            }
+            const list = [...m.values()].sort((a, b) => b.total - a.total);
+            return list.some((g) => g.key) ? list : [];
+          })()
+        : [];
 
   const note = !node
     ? null
@@ -132,7 +164,7 @@ export function MoneyFlowCard({ month }: { month: Month }) {
   return (
     <Card
       title="Where your income went"
-      subtitle={`${period}: income on the left, then categories (subscriptions as one block), then types. Pick whose accounts to show. Tap a block to see what's in it; in a category, tap a subcategory to see its payments.`}>
+      subtitle={`${period}: income on the left, then categories (subscriptions as one block), then types. Pick whose accounts to show. Tap a block to see what's in it; tap an income tag to see its sub-tags, or a category to see its subcategories.`}>
       <WhoseFilter />
       <Chips options={SPANS} value={span} onChange={(v) => { setSpan(v); select(null); }} />
       {span === 'custom' ? (
@@ -167,7 +199,7 @@ export function MoneyFlowCard({ month }: { month: Month }) {
           <Sankey
             nodes={flow.nodes.map((n) => ({ id: n.id, column: n.column, value: n.value, label: label(n), color: color(n) }))}
             links={flow.links}
-            selected={selected}
+            selected={pieces.length && subPick !== null ? `in:${expanded}:${subPick}` : pieces.length && node?.kind === 'income' && node.key === expanded ? pieces.map((n) => n.id) : selected}
             onSelect={select}
           />
         </>
@@ -185,7 +217,7 @@ export function MoneyFlowCard({ month }: { month: Month }) {
           {subs.length ? (
             <View style={{ marginTop: Spacing.two }}>
               <ThemedText type="small" themeColor="textSecondary">
-                Subcategories. Tap one to see just its payments.
+                {node.kind === 'income' ? 'Sub-tags. Tap one to see just its payments.' : 'Subcategories. Tap one to see just its payments.'}
               </ThemedText>
               {subs.map((g) => {
                 const on = subPick === g.key;

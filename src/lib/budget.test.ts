@@ -579,3 +579,26 @@ test('rules learned on the bare transfer prefix are forgotten', async () => {
   assert.ok(!s.rules.some((r) => r.match === 'trf.imed.'));
   assert.ok(s.rules.some((r) => r.match === 'zomato'));
 });
+
+test('income sub-tags are remembered with the tag', async () => {
+  const { tagIncomeIn, tagNewIncome, incomeSubTagsOf, incomeTagLabel } = await import('./budget.ts');
+  const inc = (id: string, description: string) => ({ id, date: '2026-11-20', description, amount: 10, source: 'revolut' }) as import('./types.ts').Income;
+  let s = { ...initialState(), income: [inc('1', 'TRF.IMED. DE AHMED MUJTABA KHAN-R1'), inc('2', 'TRF.IMED. DE AHMED MUJTABA KHAN-R2'), inc('3', 'TRF.IMED. DE RAJA ASIM-R3')] };
+  s = tagIncomeIn(s, '1', 'MBWay', undefined, true, 'Ahmed');
+  assert.deepEqual(s.income.map(incomeTagLabel), ['MBWay › Ahmed', 'MBWay › Ahmed', undefined]);
+  assert.deepEqual(s.incomeRules, [{ match: 'ahmed mujtaba', tag: 'MBWay', subTag: 'Ahmed' }]);
+  assert.deepEqual(tagNewIncome(s, [inc('4', 'TRF.IMED. DE AHMED MUJTABA KHAN-R4')]).map(incomeTagLabel), ['MBWay › Ahmed']);
+  assert.deepEqual(incomeSubTagsOf(s, 'mbway'), ['Ahmed']);
+  s = tagIncomeIn(s, '1', 'Family', undefined, false);
+  assert.equal(s.income[0].subTag, undefined);
+});
+
+test('an expanded income tag splits into its sub-tags in the money flow', () => {
+  const inc = (id: string, amount: number, tag: string, subTag?: string) => ({ id, date: '2026-11-20', description: id, amount, source: 'manual', tag, ...(subTag ? { subTag } : {}) }) as import('./types.ts').Income;
+  const s = { ...initialState(), income: [inc('a', 100, 'MBWay', 'Ahmed'), inc('b', 50, 'MBWay', 'Raja'), inc('c', 20, 'MBWay'), inc('d', 500, 'Salary')] };
+  const flat = moneyFlow(s, '2026-11').nodes.filter((n) => n.kind === 'income').map((n) => [n.key, n.value]);
+  assert.deepEqual(flat, [['Salary', 500], ['MBWay', 170]]);
+  const split = moneyFlow(s, '2026-11', 5, { expand: 'mbway' });
+  assert.deepEqual(split.nodes.filter((n) => n.kind === 'income').map((n) => [n.key, n.sub, n.value]), [['Salary', undefined, 500], ['MBWay', 'Ahmed', 100], ['MBWay', 'Raja', 50], ['MBWay', '', 20]]);
+  assert.equal(split.income, 670);
+});
