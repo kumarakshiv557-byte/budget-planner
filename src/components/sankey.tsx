@@ -27,9 +27,12 @@ export function Sankey({
 }: {
   nodes: SankeyNode[];
   links: SankeyLink[];
-  selected: string | null;
+  /** One node, or several shown together (an income tag split into its sub-tags). */
+  selected: string | string[] | null;
   onSelect: (id: string | null) => void;
 }) {
+  const picked = new Set(selected === null ? [] : Array.isArray(selected) ? selected : [selected]);
+  const only = picked.size === 1 ? [...picked][0] : null;
   const theme = useTheme();
   const money = useMoney();
   const [box, setBox] = useState(0);
@@ -78,9 +81,9 @@ export function Sankey({
     t.inY += b.w;
   }
 
-  const related = (l: SankeyLink) => !selected || l.source === selected || l.target === selected;
+  const related = (l: SankeyLink) => !picked.size || picked.has(l.source) || picked.has(l.target);
   const nodeOn = (id: string) =>
-    !selected || id === selected || links.some((l) => (l.source === selected && l.target === id) || (l.target === selected && l.source === id));
+    !picked.size || picked.has(id) || links.some((l) => (picked.has(l.source) && l.target === id) || (picked.has(l.target) && l.source === id));
 
   return (
     <View onLayout={(e) => setBox(e.nativeEvent.layout.width)}>
@@ -104,7 +107,7 @@ export function Sankey({
                 strokeWidth={b.w}
                 strokeOpacity={related(b) ? 0.45 : 0.1}
                 fill="none"
-                onPress={() => onSelect(selected === b.target ? null : b.target)}
+                onPress={() => onSelect(only === b.target ? null : b.target)}
               />
             );
           })}
@@ -115,7 +118,7 @@ export function Sankey({
             const anchor = above ? 'middle' : right ? 'start' : 'end';
             const cy = above ? n.y - 10 : n.y + n.h / 2;
             const on = nodeOn(n.id);
-            const press = () => onSelect(selected === n.id ? null : n.id);
+            const press = () => onSelect(only === n.id ? null : n.id);
             const two = !above && n.h >= 26;
             return (
               <G key={n.id} opacity={on ? 1 : 0.35}>
@@ -126,7 +129,7 @@ export function Sankey({
                       x={lx}
                       y={two ? cy - 3 : cy + 4}
                       fontSize={11.5}
-                      fontWeight={n.id === selected ? '700' : '600'}
+                      fontWeight={picked.has(n.id) ? '700' : '600'}
                       fontFamily={FONT}
                       textAnchor={anchor}
                       fill={halo ? theme.surface : theme.text}

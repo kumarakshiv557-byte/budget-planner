@@ -78,7 +78,7 @@ export function tagNewIncome<T extends Income>(state: Pick<BudgetState, 'incomeR
   return list.map((i) => {
     if (i.tag) return i;
     const r = matchIncomeRule(i.description, state.incomeRules);
-    return r ? { ...i, tag: r.tag, ...(r.note && !i.note ? { note: r.note } : {}) } : i;
+    return r ? { ...i, tag: r.tag, ...(r.subTag ? { subTag: r.subTag } : {}), ...(r.note && !i.note ? { note: r.note } : {}) } : i;
   });
 }
 
@@ -86,22 +86,28 @@ export function tagNewIncome<T extends Income>(state: Pick<BudgetState, 'incomeR
  * Tag an income line. With `learn`, remember the tag (and note) for its sender, and give it to the sender's other
  * lines that are untagged or had the same tag as this one before; a new tag name joins the tag list.
  */
-export function tagIncomeIn(s: BudgetState, id: string, tag: string | undefined, note: string | undefined, learn: boolean): BudgetState {
+export function tagIncomeIn(s: BudgetState, id: string, tag: string | undefined, note: string | undefined, learn: boolean, subTag?: string): BudgetState {
   const line = s.income.find((x) => x.id === id);
   if (!line) return s;
   const clean = tag?.trim() || undefined;
   const memo = note?.trim() || undefined;
+  const under = (clean && subTag?.trim()) || undefined;
   const match = learn ? ruleFrom(line.description) : '';
   const set = (x: Income): Income => {
-    const { tag: _t, note: _n, ...rest } = x;
-    return { ...rest, ...(clean ? { tag: clean } : {}), ...(memo ? { note: memo } : x.id === id ? {} : x.note ? { note: x.note } : {}) };
+    const { tag: _t, note: _n, subTag: _s, ...rest } = x;
+    return {
+      ...rest,
+      ...(clean ? { tag: clean } : {}),
+      ...(under ? { subTag: under } : {}),
+      ...(memo ? { note: memo } : x.id === id ? {} : x.note ? { note: x.note } : {}),
+    };
   };
   const sameSender = (x: Income) => !!match && ` ${x.description.toLowerCase().replace(/\s+/g, ' ')} `.includes(match);
   const income = s.income.map((x) => (x.id === id || (sameSender(x) && (!x.tag || x.tag === line.tag)) ? set(x) : x));
   let incomeRules = s.incomeRules ?? [];
   if (match) {
     incomeRules = incomeRules.filter((r) => r.match !== match);
-    if (clean) incomeRules = [...incomeRules, { match, tag: clean, ...(memo ? { note: memo } : {}) }];
+    if (clean) incomeRules = [...incomeRules, { match, tag: clean, ...(under ? { subTag: under } : {}), ...(memo ? { note: memo } : {}) }];
   }
   const tags = incomeTagsOf(s);
   return {
@@ -311,11 +317,27 @@ export function incomeSourceOf(i: Income) {
   return i.tag?.trim() || i.description.trim();
 }
 
+/** "MBWay › Ahmed", "MBWay", or undefined for an untagged line. */
+export function incomeTagLabel(i: Pick<Income, 'tag' | 'subTag'>) {
+  return i.tag ? (i.subTag ? `${i.tag} › ${i.subTag}` : i.tag) : undefined;
+}
+
+/** Sub-tags already used under a tag, most used first. */
+export function incomeSubTagsOf(s: Pick<BudgetState, 'income' | 'incomeRules'>, tag: string | undefined): string[] {
+  if (!tag) return [];
+  const t = tag.trim().toLowerCase();
+  const count = new Map<string, number>();
+  for (const x of [...s.income, ...(s.incomeRules ?? [])])
+    if (x.subTag && x.tag?.trim().toLowerCase() === t) count.set(x.subTag, (count.get(x.subTag) ?? 0) + 1);
+  return [...count.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([k]) => k);
+}
+
 /** Key of the income node that groups the smaller sources. */
 export const OTHER_INCOME = '__other';
 
 export type FlowNodeKind = 'income' | 'gap' | 'total' | 'category' | 'subscriptions' | 'leftover' | 'type';
-export type FlowNode = { id: string; kind: FlowNodeKind; key: string; column: 0 | 1 | 2 | 3; value: number };
+/** `sub` is set on the pieces of an income tag split into its sub-tags ('' for lines with no sub-tag). */
+export type FlowNode = { id: string; kind: FlowNodeKind; key: string; sub?: string; column: 0 | 1 | 2 | 3; value: number };
 export type FlowLink = { source: string; target: string; value: number };
 
 /**
@@ -324,7 +346,7 @@ export type FlowLink = { source: string; target: string; value: number };
  * If spending is more than income, a "gap" source covers the difference (savings or untracked money).
  * Refunds can make a category negative; those are left out of the flow.
  */
-export function moneyFlow(state: BudgetState, period: Month | Month[], maxSources = 5) {
+export function moneyFlow(state: BudgetState, period: Month | Month[], maxSources = 5, opts: { expand?: string } = {}) {
   const months = Array.isArray(period) ? period : [period];
   const month = months[months.length - 1];
   const nodes: FlowNode[] = [];
@@ -363,7 +385,25 @@ export function moneyFlow(state: BudgetState, period: Month | Month[], maxSource
   const total = Math.max(income, spent);
   if (total <= 0) return { nodes, links, income, spent };
 
+  // An expanded income tag shows as one block per sub-tag, biggest first.
+  const pieces = (label: string) => {
+    if (!opts.expand || label === OTHER_INCOME || label.toLowerCase() !== opts.expand.toLowerCase()) return null;
+    const m = new Map<string, number>();
+    for (const i of incomeInMonths(state.income ?? [], months))
+      if (incomeSourceOf(i).toLowerCase() === label.toLowerCase()) m.set(i.subTag ?? '', (m.get(i.subTag ?? '') ?? 0) + i.amount);
+    const list = [...m.entries()].filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
+    return list.some(([k]) => k) ? list : null;
+  };
   for (const s of sources) {
+    const split = pieces(s.label);
+    if (split) {
+      for (const [sub, v] of split) {
+        const id = `in:${s.label}:${sub}`;
+        nodes.push({ id, kind: 'income', key: s.label, sub, column: 0, value: round2(v) });
+        links.push({ source: id, target: 'total', value: round2(v) });
+      }
+      continue;
+    }
     nodes.push({ id: `in:${s.label}`, kind: 'income', key: s.label, column: 0, value: round2(s.value) });
     links.push({ source: `in:${s.label}`, target: 'total', value: round2(s.value) });
   }

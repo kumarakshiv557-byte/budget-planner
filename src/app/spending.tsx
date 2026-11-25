@@ -1,6 +1,4 @@
 import { Fragment, useState } from 'react';
-
-const OWN_TAG = '__own';
 import { Platform, Pressable, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
@@ -25,16 +23,18 @@ import {
 } from '@/components/ui';
 import { Spacing, TypeColors } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { billsCalendar, currentMonth, incomeIn, incomeTagsOf, isTransferLine, monthLabel, newId, paymentNote, recentlySorted, sortedAlike, transactionsIn, transferRuleFrom } from '@/lib/budget';
+import { billsCalendar, currentMonth, incomeIn, incomeSubTagsOf, incomeTagLabel, incomeTagsOf, isTransferLine, monthLabel, newId, paymentNote, recentlySorted, sortedAlike, transactionsIn, transferRuleFrom } from '@/lib/budget';
 import { downloadCalendar } from '@/lib/calendar-file';
 import { parseRevolutCsv } from '@/lib/revolut-csv';
 import { pickCsvText } from '@/lib/pick-file';
 import { useBudget } from '@/lib/store';
 import { ITEM_TYPES, LINE_TYPES, PAYMENTS, isRecurring, type BudgetItem, type ItemType, type Payment, type Transaction, type TxDetails } from '@/lib/types';
 
+const OWN_TAG = '__own';
+
 type Draft = { id?: string; date: string; description: string; amount: string; categoryId: string | null; subcategoryId?: string; type: ItemType; payment?: Payment; note?: string; remark?: string; owner?: string };
 
-type IncomeDraft = { id?: string; date: string; description: string; amount: string; owner?: string; monthly?: boolean; endMonth?: string; tag?: string; note?: string; newTag?: string };
+type IncomeDraft = { id?: string; date: string; description: string; amount: string; owner?: string; monthly?: boolean; endMonth?: string; tag?: string; note?: string; newTag?: string; subTag?: string };
 
 const TYPE_LABEL = Object.fromEntries(ITEM_TYPES.map((t) => [t.id, t.label]));
 /** Type choices when sorting, with a one-tap "Subscription" (recurring, fixed, debited automatically) first. */
@@ -106,7 +106,7 @@ export default function SpendingScreen() {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [notice, setNotice] = useState<{ text: string; error?: boolean } | null>(null);
   const [learn, setLearn] = useState(true);
-  const [ownTag, setOwnTag] = useState<{ id: string; text: string } | null>(null);
+  const [ownTag, setOwnTag] = useState<{ id: string; text: string; sub?: string } | null>(null);
   // Half-finished picks in "to sort": a row is sorted once it has both a category and a type.
   const [picks, setPicks] = useState<Record<string, Pick>>({});
   // The last payment(s) taken out as a transfer, so it can be undone.
@@ -126,6 +126,8 @@ export default function SpendingScreen() {
   const incomeList = incomeIn(state.income, month).sort((a, b) => b.date.localeCompare(a.date));
   const untagged = incomeList.filter((t) => !t.tag);
   const tagOptions = incomeTagsOf(state).map((t) => ({ id: t, label: t }));
+  const draftTag = (incomeDraft?.newTag?.trim() || incomeDraft?.tag)?.trim() || undefined;
+  const draftSubTags = incomeSubTagsOf(state, draftTag);
   const incomeEditing = incomeDraft?.id ? state.income.find((x) => x.id === incomeDraft.id) : undefined;
   const incomeAmount = Number((incomeDraft?.amount ?? '').replace(',', '.'));
   const incomeValid =
@@ -135,8 +137,11 @@ export default function SpendingScreen() {
     const before = incomeDraft.id ? state.income.find((x) => x.id === incomeDraft.id) : undefined;
     const tag = (incomeDraft.newTag?.trim() || incomeDraft.tag)?.trim() || undefined;
     const note = incomeDraft.note?.trim() || undefined;
+    const subTag = (tag && incomeDraft.subTag?.trim()) || undefined;
     saveIncome({
       ...(!before && tag ? { tag } : {}),
+      ...(!before && subTag ? { subTag } : {}),
+      ...(before?.subTag ? { subTag: before.subTag } : {}),
       ...(!before && note ? { note } : {}),
       ...(before?.tag ? { tag: before.tag } : {}),
       ...(before?.note ? { note: before.note } : {}),
@@ -150,7 +155,7 @@ export default function SpendingScreen() {
       ...(incomeDraft.monthly && (before?.source ?? 'manual') === 'manual' ? { monthly: true, ...(incomeDraft.endMonth ? { endMonth: incomeDraft.endMonth } : {}) } : {}),
     });
     // Changing the tag or note of an existing line goes through tagging, so it can be remembered for the sender.
-    if (before && (tag !== before.tag || note !== before.note)) tagIncome(before.id, tag, note, learn);
+    if (before && (tag !== before.tag || note !== before.note || subTag !== before.subTag)) tagIncome(before.id, tag, note, learn, subTag);
     setIncomeDraft(null);
   };
   const list = transactionsIn(state.transactions, month).sort((a, b) => b.date.localeCompare(a.date));
@@ -682,15 +687,15 @@ export default function SpendingScreen() {
                       label="Your tag"
                       value={ownTag.text}
                       autoFocus
-                      onChangeText={(text) => setOwnTag({ id: t.id, text })}
-                      onSubmitEditing={() => ownTag.text.trim() && (tagIncome(t.id, ownTag.text, undefined, learn), setOwnTag(null))}
-                      placeholder="e.g. Coins"
+                      onChangeText={(text) => setOwnTag({ ...ownTag, text })}
+                      placeholder="e.g. MBWay"
                     />
+                    <Field label="Sub-tag (optional)" value={ownTag.sub ?? ''} onChangeText={(sub) => setOwnTag({ ...ownTag, sub })} placeholder="e.g. Ahmed" />
                     <Button
                       label="Save"
                       disabled={!ownTag.text.trim()}
                       onPress={() => {
-                        tagIncome(t.id, ownTag.text, undefined, learn);
+                        tagIncome(t.id, ownTag.text, undefined, learn, ownTag.sub);
                         setOwnTag(null);
                       }}
                     />
@@ -721,6 +726,19 @@ export default function SpendingScreen() {
               <Field label="Or a new tag" value={incomeDraft.newTag ?? ''} onChangeText={(newTag) => setIncomeDraft({ ...incomeDraft, newTag })} placeholder="e.g. Rent from flat" />
               <Field label="What's it for? (optional)" value={incomeDraft.note ?? ''} onChangeText={(note) => setIncomeDraft({ ...incomeDraft, note })} placeholder="e.g. Ana paying back dinner" />
             </View>
+            {draftTag ? (
+              <>
+                <Label>Sub-tag under “{draftTag}” (optional)</Label>
+                {draftSubTags.length ? (
+                  <Chips
+                    options={draftSubTags.map((x) => ({ id: x, label: x }))}
+                    value={draftSubTags.find((x) => x === incomeDraft.subTag?.trim()) ?? null}
+                    onChange={(x) => setIncomeDraft({ ...incomeDraft, subTag: incomeDraft.subTag?.trim() === x ? '' : x })}
+                  />
+                ) : null}
+                <Field label="Sub-tag" value={incomeDraft.subTag ?? ''} onChangeText={(subTag) => setIncomeDraft({ ...incomeDraft, subTag })} placeholder="e.g. Ahmed" />
+              </>
+            ) : null}
             {incomeDraft.id && incomeEditing?.source !== 'manual' ? (
               <Checkbox label="Remember the tag for money from this sender" value={learn} onChange={setLearn} />
             ) : null}
@@ -773,7 +791,7 @@ export default function SpendingScreen() {
             onPress={() => {
               // A monthly entry is edited as a whole, from its first month.
               const saved = state.income.find((x) => x.id === t.id) ?? t;
-              setIncomeDraft({ id: t.id, date: saved.date, description: t.description, amount: String(t.amount), owner: t.owner, monthly: t.monthly, endMonth: t.endMonth, tag: saved.tag, note: saved.note });
+              setIncomeDraft({ id: t.id, date: saved.date, description: t.description, amount: String(t.amount), owner: t.owner, monthly: t.monthly, endMonth: t.endMonth, tag: saved.tag, subTag: saved.subTag, note: saved.note });
             }}
             style={{ flexDirection: 'row', gap: Spacing.two, alignItems: 'center', paddingVertical: 6, borderTopWidth: 1, borderColor: theme.border }}>
             <View style={{ flex: 1 }}>
@@ -782,7 +800,7 @@ export default function SpendingScreen() {
                 {t.description}
               </ThemedText>
               <ThemedText type="small" themeColor="textSecondary">
-                {t.date} · {t.tag ?? 'Untagged'}
+                {t.date} · {incomeTagLabel(t) ?? 'Untagged'}
                 {t.monthly ? ' · every month' : t.source === 'csv' ? ' · imported' : t.source === 'revolut' ? ' · synced' : ''}
                 {personTag(t)}
               </ThemedText>
