@@ -415,8 +415,19 @@ export function ruleFrom(description: string) {
     .split(' ')
     .filter(Boolean);
   if (!words.length) return '';
+  // A bank transfer ("TRF.IMED. DE AHMED MUJTABA KHAN-E1943…") is remembered by the person's name, not by
+  // "trf.imed.", which every instant transfer shares.
+  let i = 0;
+  while (i < words.length && TRANSFER_WORDS.has(words[i])) i++;
+  if (i > 0 && i < words.length) return words.slice(i, i + 2).join(' ').replace(/-[a-z]?$/, '');
   return words[0].length >= 5 ? words[0] : words.slice(0, 2).join(' ');
 }
+
+/** True for words banks put before the other person's name on a transfer. */
+export const isTransferWord = (w: string) => TRANSFER_WORDS.has(w);
+
+/** Words banks put before the other person's name on a transfer (Portuguese and English). */
+const TRANSFER_WORDS = new Set(['trf.imed.', 'trf.imed', 'anul.trf.imed.', 'anul.trf.imed', 'trf.', 'trf', 'transf.', 'transf', 'transferencia', 'transferência', 'imediata', 'sepa', 'de', 'do', 'da', 'p/', 'from', 'to', 'transfer']);
 
 /**
  * Put a transaction in a category (and optionally a subcategory). With `learn`, remember the merchant

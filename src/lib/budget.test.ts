@@ -188,6 +188,7 @@ test('money flow: income → month → categories (+ left over) → types', () =
 
 test('ruleFrom drops payment-processor prefixes and keeps the distinctive word', () => {
   assert.equal(ruleFrom('Raz*zomato Online Order'), 'zomato');
+  assert.equal(ruleFrom('ANUL.TRF.IMED.   P/ Altura Nova Consulting Unip Ld'), 'altura nova');
   assert.equal(ruleFrom('Pyu*zomato Limited'), 'zomato');
   assert.equal(ruleFrom('Paypal *itunesappst Apple'), 'itunesappst');
   assert.equal(ruleFrom('PINGO DOCE LISBOA 123'), 'pingo');
@@ -556,4 +557,25 @@ test('a line marked as a transfer by mistake can be put back, and its rule forgo
   assert.deepEqual(s.transferRules, []);
   assert.deepEqual(s.transferIds, []);
   assert.equal(s.rereadAll, true);
+});
+
+test('transfers are remembered by the person, not by the bank prefix', () => {
+  assert.equal(ruleFrom('TRF.IMED. DE AHMED MUJTABA KHAN-E19438152'), 'ahmed mujtaba');
+  assert.equal(ruleFrom('TRF.IMED.  P/ Poonam Kumari-E41057871'), 'poonam kumari');
+  assert.equal(ruleFrom('9141613 DEP.MOEDAS            CHARNECA DE CAPARICA'), 'dep.moedas');
+  assert.equal(ruleFrom('Raz*zomato Online Order'), 'zomato');
+  assert.equal(ruleFrom('ANUL.TRF.IMED.   P/ Altura Nova Consulting Unip Ld'), 'altura nova');
+});
+
+test('rules learned on the bare transfer prefix are forgotten', async () => {
+  const { migrate } = await import('./defaults.ts');
+  const s = migrate({
+    dataVersion: 4,
+    subcategories: [],
+    incomeRules: [{ match: 'trf.imed.', tag: 'Side work' }, { match: 'divya', tag: 'Salary' }],
+    rules: [{ match: 'trf.imed.', categoryId: 'frivolous' }, { match: 'zomato', categoryId: 'frivolous' }],
+  } as never);
+  assert.deepEqual(s.incomeRules?.map((r) => r.match), ['divya']);
+  assert.ok(!s.rules.some((r) => r.match === 'trf.imed.'));
+  assert.ok(s.rules.some((r) => r.match === 'zomato'));
 });
