@@ -1,4 +1,6 @@
 import { Fragment, useState } from 'react';
+
+const OWN_TAG = '__own';
 import { Platform, Pressable, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
@@ -104,6 +106,7 @@ export default function SpendingScreen() {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [notice, setNotice] = useState<{ text: string; error?: boolean } | null>(null);
   const [learn, setLearn] = useState(true);
+  const [ownTag, setOwnTag] = useState<{ id: string; text: string } | null>(null);
   // Half-finished picks in "to sort": a row is sorted once it has both a category and a type.
   const [picks, setPicks] = useState<Record<string, Pick>>({});
   // The last payment(s) taken out as a transfer, so it can be undone.
@@ -668,7 +671,31 @@ export default function SpendingScreen() {
                     +{money(t.amount, true)}
                   </ThemedText>
                 </View>
-                <Chips options={tagOptions} value={null} onChange={(tag) => tagIncome(t.id, tag, undefined, learn)} />
+                <Chips
+                  options={[...tagOptions, { id: OWN_TAG, label: '+ Own tag' }]}
+                  value={ownTag?.id === t.id ? OWN_TAG : null}
+                  onChange={(tag) => (tag === OWN_TAG ? setOwnTag(ownTag?.id === t.id ? null : { id: t.id, text: '' }) : tagIncome(t.id, tag, undefined, learn))}
+                />
+                {ownTag?.id === t.id ? (
+                  <View style={[styles.row, { alignItems: 'flex-end' }]}>
+                    <Field
+                      label="Your tag"
+                      value={ownTag.text}
+                      autoFocus
+                      onChangeText={(text) => setOwnTag({ id: t.id, text })}
+                      onSubmitEditing={() => ownTag.text.trim() && (tagIncome(t.id, ownTag.text, undefined, learn), setOwnTag(null))}
+                      placeholder="e.g. Coins"
+                    />
+                    <Button
+                      label="Save"
+                      disabled={!ownTag.text.trim()}
+                      onPress={() => {
+                        tagIncome(t.id, ownTag.text, undefined, learn);
+                        setOwnTag(null);
+                      }}
+                    />
+                  </View>
+                ) : null}
               </View>
             ))}
           </View>

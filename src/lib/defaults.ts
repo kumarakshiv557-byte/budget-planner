@@ -1,4 +1,4 @@
-import { matchRule } from './budget.ts';
+import { isTransferWord, matchRule } from './budget.ts';
 import type { BudgetItem, BudgetState, Category, CategoryRule, ItemType, Person, Subcategory, Transaction } from './types.ts';
 
 // Categorical colours in fixed order (validated for colour-blind separation).
@@ -74,10 +74,20 @@ export function migrate(saved: Partial<BudgetState>): BudgetState {
   if ((s.dataVersion ?? 1) < 2) s = dropSubscriptionsCategory(s);
   if ((s.dataVersion ?? 1) < 3) s = resetSorting(addWork(s));
   if ((s.dataVersion ?? 1) < 4) s = oneTimeLines(s);
+  if ((s.dataVersion ?? 1) < 5) s = dropTransferPrefixRules(s);
   return { ...s, dataVersion: DATA_VERSION };
 }
 
-export const DATA_VERSION = 4;
+export const DATA_VERSION = 5;
+
+/**
+ * Rules learned before transfers were remembered by the person's name keyed on "trf.imed.", which every instant
+ * transfer shares, so one pick spread to everyone's transfers. Forget those rules (lines already sorted stay as they are).
+ */
+function dropTransferPrefixRules(s: BudgetState): BudgetState {
+  const generic = (m: string) => m.split(' ').filter(Boolean).every((w) => isTransferWord(w));
+  return { ...s, rules: s.rules.filter((r) => !generic(r.match)), incomeRules: (s.incomeRules ?? []).filter((r) => !generic(r.match)) };
+}
 
 /** Spending lines (and what was learned from them) no longer split one-time into fixed and variable. */
 function oneTimeLines(s: BudgetState): BudgetState {
