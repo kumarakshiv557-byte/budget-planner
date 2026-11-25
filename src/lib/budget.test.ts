@@ -621,3 +621,15 @@ test('transfers a sync leaves out are listed once, with why', async () => {
   ]);
   assert.deepEqual(transferLinesFrom({ ...s, transferLog: log }, res, ['eb:5']), []);
 });
+
+test('an expanded category splits into its subcategories in the money flow, each still flowing to types', () => {
+  const tx = (id: string, amount: number, categoryId: string, type: import('./types.ts').ItemType, subcategoryId?: string) =>
+    ({ id, date: '2026-11-20', description: id, amount, categoryId, type, source: 'manual', ...(subcategoryId ? { subcategoryId } : {}) }) as import('./types.ts').Transaction;
+  const s = { ...initialState(), transactions: [tx('a', 40, 'frivolous', 'variable-one-time', 'eating-out'), tx('b', 10, 'frivolous', 'recurring-variable', 'eating-out'), tx('c', 30, 'frivolous', 'variable-one-time'), tx('d', 60, 'essentials', 'variable-one-time')] };
+  const flat = moneyFlow(s, '2026-11').nodes.filter((n) => n.kind === 'category').map((n) => [n.key, n.value]);
+  assert.deepEqual(flat, [['frivolous', 80], ['essentials', 60]]);
+  const split = moneyFlow(s, '2026-11', 5, { expandCategory: 'frivolous' });
+  assert.deepEqual(split.nodes.filter((n) => n.kind === 'category').map((n) => [n.key, n.sub, n.value]), [['frivolous', 'eating-out', 50], ['frivolous', '', 30], ['essentials', undefined, 60]]);
+  assert.deepEqual(split.links.filter((l) => l.source === 'cat:frivolous:eating-out').map((l) => [l.target, l.value]), [['type:variable-one-time', 40], ['type:recurring-variable', 10]]);
+  assert.equal(split.spent, 140);
+});
