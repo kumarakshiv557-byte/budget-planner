@@ -128,6 +128,19 @@ export type Income = {
   subTag?: string;
 };
 
+/** A bank line left out because it only moved money between your own accounts. */
+export type TransferLine = {
+  externalId: string;
+  date: string;
+  description: string;
+  amount: number;
+  owner?: string;
+  /** Money out of, or into, the account. */
+  dir: 'in' | 'out';
+  /** The remembered text it matched, or "pair" when its other side was found in another of your accounts. */
+  why: string;
+};
+
 /** "Money in from anyone matching this text gets this tag (and note)." */
 export type IncomeRule = { match: string; tag: string; subTag?: string; note?: string };
 
@@ -159,10 +172,12 @@ export type BudgetState = {
   incomeRules?: IncomeRule[];
   /** Text of payments you marked as moving money between your own accounts ("p/ akshiv kumar"); such lines are never imported. */
   transferRules?: string[];
-  /** Lines you took out as transfers, kept so they can be put back from "Recently sorted" (newest last). */
+  /** Lines you took out as transfers, kept so they can be put back from the Income tab (newest last). */
   transferred?: { line: Transaction; rule?: string; at: string }[];
   /** The next sync re-reads the full ~90 days (to bring back lines that were left out). */
   rereadAll?: boolean;
+  /** Bank lines the sync left out as transfers between your own accounts, so the Income tab can show them (newest last). */
+  transferLog?: TransferLine[];
   /** Owners whose bank connection has been synced at least once (a new one gets its full history). */
   syncedOwners?: string[];
   /** True once Revolut income has been fetched for the full ~90-day window. */

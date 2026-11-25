@@ -5,7 +5,7 @@ import { Platform } from 'react-native';
 
 import { newId } from './budget.ts';
 import { useBudget } from './store.tsx';
-import { SYNC_CONFIG_KEY, detailsFor, findSyncedTransfers, mergeSynced, mergeSyncedIncome, nextDateFrom, syncApi, type SyncConfig, type SyncStatus } from './sync.ts';
+import { SYNC_CONFIG_KEY, detailsFor, findSyncedTransfers, mergeSynced, mergeSyncedIncome, transferLinesFrom, nextDateFrom, syncApi, type SyncConfig, type SyncStatus } from './sync.ts';
 
 export { SYNC_CONFIG_KEY };
 const KEY = SYNC_CONFIG_KEY;
@@ -103,7 +103,8 @@ export function useRevolutSync() {
         const removed = transfers.filter((id) => known.has(id)).length;
         // Only count the refill as done when every connected bank was read.
         const details = refill && !(res.problems ?? []).length ? detailsFor(s, res.transactions) : !s.lastSyncedAt ? {} : undefined;
-        applySync(added, new Date().toISOString(), income, transfers, res.owners ?? ['me'], details, reread && !(res.problems ?? []).length);
+        const log = transferLinesFrom(merged, res, transfers);
+        applySync(added, new Date().toISOString(), income, transfers, res.owners ?? ['me'], details, reread && !(res.problems ?? []).length, log);
         setStatus((st) => ({ ...(st ?? { connected: true }), connected: true, validUntil: res.validUntil }));
         loadStatus();
         const parts = [];

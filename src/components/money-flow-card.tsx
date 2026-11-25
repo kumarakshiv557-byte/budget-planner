@@ -152,7 +152,7 @@ export function MoneyFlowCard({ month }: { month: Month }) {
   const note = !node
     ? null
     : node.kind === 'gap'
-      ? `You spent ${money(node.value, true)} more than the income recorded for ${period}. That came from savings or from income the app hasn't seen yet. Add it on the Spending tab.`
+      ? `You spent ${money(node.value, true)} more than the income recorded for ${period}. That came from savings or from income the app hasn't seen yet. Add it on the Income tab.`
       : node.kind === 'subscriptions'
         ? `Subscriptions are debited automatically, so they're kept as one block here and listed on their own in the Subscriptions card.`
         : node.kind === 'leftover'
@@ -193,7 +193,7 @@ export function MoneyFlowCard({ month }: { month: Month }) {
         <>
           {flow.income === 0 ? (
             <ThemedText type="small" themeColor="textSecondary">
-              No income recorded for {period}. Sync Revolut or add it on the Spending tab.
+              No income recorded for {period}. Sync Revolut or add it on the Income tab.
             </ThemedText>
           ) : null}
           <Sankey

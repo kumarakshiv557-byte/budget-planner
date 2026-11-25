@@ -28,6 +28,9 @@ export default function AppTabs() {
           <TabTrigger name="spending" href="/spending" asChild>
             <TabButton>Spending</TabButton>
           </TabTrigger>
+          <TabTrigger name="income" href="/income" asChild>
+            <TabButton>Income</TabButton>
+          </TabTrigger>
           <TabTrigger name="settings" href="/settings" asChild>
             <TabButton>Settings</TabButton>
           </TabTrigger>
@@ -38,11 +41,13 @@ export default function AppTabs() {
 }
 
 export function TabButton({ children, isFocused, ref: _ref, ...props }: TabTriggerSlotProps) {
+  // Five tabs have to fit a phone: tighter padding when the screen is narrow.
+  const narrow = useWindowDimensions().width < 520;
   return (
     <Pressable {...props} style={({ pressed }) => pressed && styles.pressed}>
       <ThemedView
         type={isFocused ? 'backgroundSelected' : 'backgroundElement'}
-        style={styles.tabButtonView}>
+        style={[styles.tabButtonView, narrow && { paddingHorizontal: 10 }]}>
         <ThemedText type="small" themeColor={isFocused ? 'text' : 'textSecondary'}>
           {children}
         </ThemedText>
