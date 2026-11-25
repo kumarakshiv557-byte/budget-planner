@@ -13,7 +13,7 @@
 //   POST /sync      → { transactions, income, transfers } booked spending and money in since body.dateFrom
 //                     (default: 90 days ago) from every connection. body.fullFor lists owners to read the full
 //                     ~90 days for (a newly connected account). Money moved between two connected accounts is
-//                     left out of both lists, and its rows' ids are returned in `transfers`. A connection the bank
+//                     left out of both lists, and its rows' ids are returned in `transfers` (the rows in `transferLines`). A connection the bank
 //                     won't read is skipped and listed in `problems`; the others still sync.
 //
 // Each connection belongs to an owner ("me", "wife", …): the household's people, as named in the app.
@@ -380,6 +380,7 @@ async function sync(req: Request) {
     transactions: spending.filter((t) => !skip.has(t.externalId)),
     income: income.filter((t) => !skip.has(t.externalId)),
     transfers,
+    transferLines: { spending: spending.filter((t) => skip.has(t.externalId)), income: income.filter((t) => skip.has(t.externalId)) },
     owners: all.map((s) => s.owner).filter((o) => readOwners.has(o)),
     problems,
     validUntil: me.valid_until,

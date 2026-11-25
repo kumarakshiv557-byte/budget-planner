@@ -704,8 +704,13 @@ export function transferRuleFrom(description: string) {
 
 /** True when a bank description matches a payment you marked as a transfer. */
 export function isTransferLine(description: string, rules: string[] = []) {
+  return !!transferRuleOf(description, rules);
+}
+
+/** The remembered transfer text a bank description matches, if any. */
+export function transferRuleOf(description: string, rules: string[] = []) {
   const d = ` ${description.toLowerCase().replace(/\s+/g, ' ')} `;
-  return rules.some((r) => r !== '' && d.includes(r));
+  return rules.find((r) => r !== '' && d.includes(r));
 }
 
 /**

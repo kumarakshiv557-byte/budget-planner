@@ -75,10 +75,12 @@ export function migrate(saved: Partial<BudgetState>): BudgetState {
   if ((s.dataVersion ?? 1) < 3) s = resetSorting(addWork(s));
   if ((s.dataVersion ?? 1) < 4) s = oneTimeLines(s);
   if ((s.dataVersion ?? 1) < 5) s = dropTransferPrefixRules(s);
+  // Transfers left out before they were listed: re-read the bank's ~90 days once so the Income tab can show them.
+  if ((s.dataVersion ?? 1) < 6 && s.lastSyncedAt) s = { ...s, rereadAll: true };
   return { ...s, dataVersion: DATA_VERSION };
 }
 
-export const DATA_VERSION = 5;
+export const DATA_VERSION = 6;
 
 /**
  * Rules learned before transfers were remembered by the person's name keyed on "trf.imed.", which every instant

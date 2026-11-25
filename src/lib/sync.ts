@@ -1,5 +1,5 @@
-import { isTransferLine, matchRule, typeFor } from './budget.ts';
-import type { BudgetState, Income, Transaction } from './types.ts';
+import { isTransferLine, matchRule, transferRuleOf, typeFor } from './budget.ts';
+import type { BudgetState, Income, Transaction, TransferLine } from './types.ts';
 import { findTransfers, type SyncedTransaction } from '../../supabase/functions/revolut-sync/eb-normalize.ts';
 
 export type { SyncedTransaction };
@@ -111,6 +111,38 @@ export function findSyncedTransfers(state: BudgetState, today = new Date()): str
   return findTransfers(out, inn);
 }
 
+/**
+ * Bank lines a sync leaves out as transfers, to list on the Income tab: rows matching a remembered transfer, rows
+ * the server paired, and lines already here that `paired` takes out. Lines already listed are skipped.
+ */
+export function transferLinesFrom(
+  state: BudgetState,
+  res: { transactions: SyncedTransaction[]; income?: SyncedTransaction[]; transferLines?: { spending: SyncedTransaction[]; income: SyncedTransaction[] } },
+  paired: string[] = [],
+): TransferLine[] {
+  const seen = new Set((state.transferLog ?? []).map((x) => `${x.dir}:${x.externalId}`));
+  const out: TransferLine[] = [];
+  const add = (r: { externalId?: string; date: string; description: string; amount: number; owner?: string }, dir: 'in' | 'out', why: string) => {
+    if (!r.externalId || seen.has(`${dir}:${r.externalId}`)) return;
+    seen.add(`${dir}:${r.externalId}`);
+    out.push({ externalId: r.externalId, date: r.date, description: r.description, amount: r.amount, ...(r.owner && r.owner !== 'me' ? { owner: r.owner } : {}), dir, why });
+  };
+  for (const r of res.transactions) {
+    const rule = transferRuleOf(r.description, state.transferRules);
+    if (rule) add(r, 'out', rule);
+  }
+  for (const r of res.income ?? []) {
+    const rule = transferRuleOf(r.description, state.transferRules);
+    if (rule) add(r, 'in', rule);
+  }
+  for (const r of res.transferLines?.spending ?? []) add(r, 'out', 'pair');
+  for (const r of res.transferLines?.income ?? []) add(r, 'in', 'pair');
+  const ids = new Set(paired);
+  for (const t of state.transactions) if (t.externalId && ids.has(t.externalId)) add(t, 'out', 'pair');
+  for (const t of state.income) if (t.externalId && ids.has(t.externalId)) add(t, 'in', 'pair');
+  return out;
+}
+
 export function applyTransfers(state: BudgetState, transfers: string[]): Pick<BudgetState, 'transactions' | 'income' | 'transferIds'> {
   const ids = new Set(transfers);
   return {
@@ -143,6 +175,8 @@ export const syncApi = {
       income?: SyncedTransaction[];
       /** Both sides of money moved between two connected accounts (left out of the lists above). */
       transfers?: string[];
+      /** The rows behind `transfers` (newer servers only). */
+      transferLines?: { spending: SyncedTransaction[]; income: SyncedTransaction[] };
       /** Whose connections were read. */
       owners?: string[];
       /** Connections the bank wouldn't read (fully); the rest synced. */

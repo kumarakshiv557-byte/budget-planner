@@ -602,3 +602,22 @@ test('an expanded income tag splits into its sub-tags in the money flow', () => 
   assert.deepEqual(split.nodes.filter((n) => n.kind === 'income').map((n) => [n.key, n.sub, n.value]), [['Salary', undefined, 500], ['MBWay', 'Ahmed', 100], ['MBWay', 'Raja', 50], ['MBWay', '', 20]]);
   assert.equal(split.income, 670);
 });
+
+test('transfers a sync leaves out are listed once, with why', async () => {
+  const { transferLinesFrom } = await import('./sync.ts');
+  const row = (externalId: string, description: string, amount: number, owner?: string) => ({ externalId, date: '2026-11-20', description, amount, currency: 'EUR', ...(owner ? { owner } : {}) });
+  const s = { ...initialState(), transferRules: ['p/ akshiv kumar'], transactions: [{ id: 'x', date: '2026-11-19', description: 'To Wife', amount: 50, categoryId: null, type: 'variable-one-time', source: 'revolut', externalId: 'eb:5' }] } as BudgetState;
+  const res = {
+    transactions: [row('eb:1', 'TRF.IMED. P/ Akshiv Kumar-E1', 200, 'wife'), row('eb:2', 'Continente', 30)],
+    income: [row('eb:3', 'DIVYA DIVYA', 100)],
+    transferLines: { spending: [row('eb:4', 'To Poonam', 75)], income: [row('eb:4b', 'From Akshiv', 75, 'wife')] },
+  };
+  const log = transferLinesFrom(s, res, ['eb:5']);
+  assert.deepEqual(log.map((x) => [x.externalId, x.dir, x.why, x.owner]), [
+    ['eb:1', 'out', 'p/ akshiv kumar', 'wife'],
+    ['eb:4', 'out', 'pair', undefined],
+    ['eb:4b', 'in', 'pair', 'wife'],
+    ['eb:5', 'out', 'pair', undefined],
+  ]);
+  assert.deepEqual(transferLinesFrom({ ...s, transferLog: log }, res, ['eb:5']), []);
+});

@@ -6,7 +6,7 @@ import { forPerson, forgetTransferRuleIn, markTransferIn, putBackTransferIn, tag
 import { cloudApi, decide, type CloudMeta, type CloudStatus } from './cloud.ts';
 import { initialState, migrate } from './defaults.ts';
 import { applyTransfers, SYNC_CONFIG_KEY, type SyncConfig } from './sync.ts';
-import type { BudgetItem, BudgetState, Category, Income, Transaction } from './types.ts';
+import type { BudgetItem, BudgetState, Category, Income, Transaction, TransferLine } from './types.ts';
 
 const KEY = 'budget-planner/state/v1';
 /** This device's CloudMeta (which server version its data is based on, and whether it has unsaved changes). */
@@ -39,7 +39,7 @@ type Actions = {
    * bank rows of money moved between the household's accounts: they are taken out and never imported.
    * `owners` are whose connections were read.
    */
-  applySync: (ts: Transaction[], at: string, income?: Income[], transfers?: string[], owners?: string[], details?: Record<string, NonNullable<Transaction['details']>>, reread?: boolean) => void;
+  applySync: (ts: Transaction[], at: string, income?: Income[], transfers?: string[], owners?: string[], details?: Record<string, NonNullable<Transaction['details']>>, reread?: boolean, log?: TransferLine[]) => void;
   saveIncome: (i: Omit<Income, 'id'> & { id?: string }) => void;
   deleteIncome: (id: string) => void;
   addIncome: (list: Income[]) => void;
@@ -244,7 +244,7 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
       unsortTransaction: (id, alsoOthers) => update((s) => unsortIn(s, id, alsoOthers)),
       deleteTransaction: (id) => update((s) => ({ ...s, transactions: s.transactions.filter((t) => t.id !== id) })),
       addTransactions: (ts) => update((s) => ({ ...s, transactions: [...s.transactions, ...ts] })),
-      applySync: (ts, at, income, transfers = [], owners, details, reread) =>
+      applySync: (ts, at, income, transfers = [], owners, details, reread, log) =>
         update((s) => {
           const withDetails = details
             ? s.transactions.map((t) => (t.externalId && details[t.externalId] && !t.details ? { ...t, details: details[t.externalId] } : t))
@@ -257,6 +257,7 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
             transactions: [...withDetails, ...ts],
             ...(income ? { income: [...s.income, ...tagNewIncome(s, income)], incomeBackfilled: true } : {}),
             ...(owners ? { syncedOwners: [...new Set([...(s.syncedOwners ?? []), ...owners])] } : {}),
+            ...(log?.length ? { transferLog: [...(s.transferLog ?? []), ...log].slice(-1500) } : {}),
           };
           return transfers.length ? { ...next, ...applyTransfers(next, transfers) } : next;
         }),

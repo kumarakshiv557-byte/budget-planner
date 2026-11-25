@@ -24,6 +24,10 @@ export default function AppTabs() {
         <NativeTabs.Trigger.Label>Spending</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon sf="creditcard" md="credit_card" />
       </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="income">
+        <NativeTabs.Trigger.Label>Income</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Icon sf="arrow.down.circle" md="savings" />
+      </NativeTabs.Trigger>
       <NativeTabs.Trigger name="settings">
         <NativeTabs.Trigger.Label>Settings</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon sf="gearshape" md="settings" />
