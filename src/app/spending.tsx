@@ -482,6 +482,7 @@ export default function SpendingScreen() {
               <View style={{ flexDirection: 'row' }}>
                 <ThemedText type="small" style={{ flex: 1 }}>
                   {t.description} · {t.date.slice(8)} {monthLabel(month, 'short')}
+                  {personTag(t)}
                 </ThemedText>
                 <ThemedText type="smallBold">{money(t.amount, true)}</ThemedText>
               </View>
