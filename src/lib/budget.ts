@@ -423,10 +423,8 @@ export function moneyFlow(state: BudgetState, period: Month | Month[], maxSource
   const catType = new Map<string, Map<ItemType, number>>();
   // Per subcategory of the expanded category: total and per-type amounts.
   const subType = new Map<string, Map<ItemType, number>>();
-  // Subscriptions are one block of their own, not split into categories and types.
-  const subs = Math.max(0, round2(months.reduce((s, m) => s + subscriptionsTotal(state, m, 'actual'), 0)));
+  // Subscriptions flow into their own category and type, like every other payment.
   for (const t of transactionsInMonths(state.transactions, months)) {
-    if (isSubscription(t)) continue;
     const c = t.categoryId ?? 'none';
     cat.set(c, (cat.get(c) ?? 0) + t.amount);
     const m = catType.get(c) ?? new Map<ItemType, number>();
@@ -441,7 +439,7 @@ export function moneyFlow(state: BudgetState, period: Month | Month[], maxSource
   const cats = [...cat.entries()].filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
 
   const income = round2(sources.reduce((s, x) => s + x.value, 0));
-  const spent = round2(cats.reduce((s, [, v]) => s + v, 0) + subs);
+  const spent = round2(cats.reduce((s, [, v]) => s + v, 0));
   const total = Math.max(income, spent);
   if (total <= 0) return { nodes, links, income, spent };
 
@@ -526,10 +524,6 @@ export function moneyFlow(state: BudgetState, period: Month | Month[], maxSource
     nodes.push({ id: `cat:${c}`, kind: 'category', key: c, column: 2, value: round2(v) });
     links.push({ source: 'total', target: `cat:${c}`, value: round2(v) });
     toTypes(`cat:${c}`, catType.get(c) ?? new Map(), v);
-  }
-  if (subs > 0) {
-    nodes.push({ id: 'subscriptions', kind: 'subscriptions', key: 'subscriptions', column: 2, value: subs });
-    links.push({ source: 'total', target: 'subscriptions', value: subs });
   }
   if (income > spent) {
     nodes.push({ id: 'leftover', kind: 'leftover', key: 'leftover', column: 2, value: round2(income - spent) });

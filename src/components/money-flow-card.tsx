@@ -204,7 +204,7 @@ export function MoneyFlowCard({ month }: { month: Month }) {
   return (
     <Card
       title="Where your income went"
-      subtitle={`${period}: income on the left, then categories (subscriptions as one block), then types. Pick whose accounts to show. Tap a block to see what's in it; tapping an income tag splits it into its sub-tags, and tapping a category splits it into its subcategories.`}>
+      subtitle={`${period}: income on the left, then categories, then types. Pick whose accounts to show. Tap a block to see what's in it; tapping an income tag splits it into its sub-tags, and tapping a category splits it into its subcategories.`}>
       <WhoseFilter />
       <Chips options={SPANS} value={span} onChange={(v) => { setSpan(v); select(null); }} />
       {span === 'custom' ? (
