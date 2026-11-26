@@ -679,3 +679,15 @@ test('a new category gets the next colour not already used', async () => {
   assert.deepEqual([a.name, a.color], ['Health', '#1a9e9e']);
   assert.equal(newCategory([...cats, a], 'y', 'Kids').color, '#4a9d3f');
 });
+
+test('a booking the bank sends twice under entry numbers ending 0001 and 0002 is only imported once', () => {
+  const row = (externalId: string, amount = 70) => ({ externalId, date: '2026-11-25', description: 'TRF MBWAY P/XXXXX3300', amount, currency: 'EUR', owner: 'wife' });
+  const ids = (() => { let n = 0; return () => `n${n++}`; })();
+  const s = initialState();
+  const first = mergeSynced(s, [row('eb:acc:202611251321276873650002'), row('eb:acc:202611251321276873650001')], ids);
+  assert.equal(first.length, 1);
+  // Already here under one number: the other one is skipped on a later sync too.
+  assert.equal(mergeSynced({ ...s, transactions: first }, [row('eb:acc:202611251321276873650001')], ids).length, 0);
+  // A different amount under the same booking (e.g. a fee) is kept.
+  assert.equal(mergeSynced({ ...s, transactions: first }, [row('eb:acc:202611251321276873650003', 1.2)], ids).length, 1);
+});
