@@ -633,3 +633,10 @@ test('an expanded category splits into its subcategories in the money flow, each
   assert.deepEqual(split.links.filter((l) => l.source === 'cat:frivolous:eating-out').map((l) => [l.target, l.value]), [['type:variable-one-time', 40], ['type:recurring-variable', 10]]);
   assert.equal(split.spent, 140);
 });
+
+test('a tagged income source always gets its own block; only untagged senders go into Other income', () => {
+  const inc = (id: string, amount: number, tag?: string) => ({ id, date: '2026-11-10', description: `SENDER ${id}`, amount, source: 'manual', ...(tag ? { tag } : {}) }) as import('./types.ts').Income;
+  const s = { ...initialState(), income: [inc('a', 700, 'Coins'), inc('b', 400), inc('c', 385), inc('d', 300), inc('e', 250), inc('f', 200, 'Notes'), inc('g', 190)] };
+  const keys = moneyFlow(s, '2026-11').nodes.filter((n) => n.kind === 'income').map((n) => [n.key, n.value]);
+  assert.deepEqual(keys, [['Coins', 700], ['SENDER b', 400], ['SENDER c', 385], ['Notes', 200], ['__other', 740]]);
+});

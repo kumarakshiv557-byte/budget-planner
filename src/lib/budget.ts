@@ -363,10 +363,17 @@ export function moneyFlow(state: BudgetState, period: Month | Month[], maxSource
     g.value += i.amount;
     bySource.set(k, g);
   }
-  let sources = [...bySource.values()].filter((s) => s.value > 0).sort((a, b) => b.value - a.value);
-  if (sources.length > maxSources) {
-    const rest = sources.slice(maxSources - 1).reduce((s, x) => s + x.value, 0);
-    sources = [...sources.slice(0, maxSources - 1), { label: OTHER_INCOME, value: rest }];
+  // Every tag gets its own block; only untagged senders are grouped into "Other income" when there are too many.
+  const all = [...bySource.values()].filter((s) => s.value > 0).sort((a, b) => b.value - a.value);
+  let sources = all;
+  if (all.length > maxSources) {
+    const tagged = new Set(incomeInMonths(state.income ?? [], months).filter((i) => i.tag?.trim()).map((i) => incomeSourceOf(i).toLowerCase()));
+    const untagged = all.filter((s) => !tagged.has(s.label.toLowerCase()));
+    const room = Math.max(0, maxSources - 1 - (all.length - untagged.length));
+    const kept = new Set(untagged.slice(0, room));
+    const rest = untagged.slice(room);
+    sources = all.filter((s) => tagged.has(s.label.toLowerCase()) || kept.has(s));
+    if (rest.length) sources.push({ label: OTHER_INCOME, value: rest.reduce((s, x) => s + x.value, 0) });
   }
 
   const cat = new Map<string, number>();
