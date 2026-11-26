@@ -4,13 +4,40 @@ import { findTransfers, type SyncedTransaction } from '../../supabase/functions/
 
 export type { SyncedTransaction };
 
+/**
+ * Some banks (Santander) send one booking twice with entry numbers that differ only in the last digits
+ * ("…6873650001" and "…6873650002"). Lines with the same booking reference, amount and description are the
+ * same payment. Returns undefined for ids that don't look like that.
+ */
+export function bookingKey(x: { externalId?: string; amount: number; description: string }) {
+  const m = x.externalId?.match(/^(eb:[^:]+:\d{16,})\d{4}$/);
+  return m ? `${m[1]}|${x.amount}|${x.description.trim().toLowerCase()}` : undefined;
+}
+
+/** Ids and booking keys of lines already here, so a row seen before (under either) is skipped. */
+function seenSet(lines: { externalId?: string; amount: number; description: string }[], extra: string[] = []) {
+  const seen = new Set<string>(extra);
+  for (const l of lines) {
+    if (l.externalId) seen.add(l.externalId);
+    const k = bookingKey(l);
+    if (k) seen.add(k);
+  }
+  return seen;
+}
+const isSeen = (seen: Set<string>, r: SyncedTransaction) => {
+  const k = bookingKey(r);
+  if (seen.has(r.externalId) || (k && seen.has(k))) return true;
+  seen.add(r.externalId);
+  if (k) seen.add(k);
+  return false;
+};
+
 /** Turn rows from the sync backend into app transactions, skipping ones already imported. */
 export function mergeSynced(state: BudgetState, rows: SyncedTransaction[], idFor: () => string): Transaction[] {
-  const seen = new Set([...state.transactions.map((t) => t.externalId).filter(Boolean), ...(state.transferIds ?? [])]);
+  const seen = seenSet(state.transactions, state.transferIds ?? []);
   const out: Transaction[] = [];
   for (const r of rows) {
-    if (seen.has(r.externalId) || isTransferLine(r.description, state.transferRules)) continue;
-    seen.add(r.externalId);
+    if (isTransferLine(r.description, state.transferRules) || isSeen(seen, r)) continue;
     const rule = matchRule(r.description, state.rules, r.amount);
     const categoryId = rule?.categoryId ?? null;
     out.push({
@@ -42,11 +69,10 @@ export function detailsFor(state: BudgetState, rows: SyncedTransaction[]): Recor
 
 /** Turn synced money-in rows into income, skipping ones already imported. */
 export function mergeSyncedIncome(state: BudgetState, rows: SyncedTransaction[], idFor: () => string): Income[] {
-  const seen = new Set([...(state.income ?? []).map((t) => t.externalId).filter(Boolean), ...(state.transferIds ?? [])]);
+  const seen = seenSet(state.income ?? [], state.transferIds ?? []);
   const out: Income[] = [];
   for (const r of rows) {
-    if (seen.has(r.externalId) || isTransferLine(r.description, state.transferRules)) continue;
-    seen.add(r.externalId);
+    if (isTransferLine(r.description, state.transferRules) || isSeen(seen, r)) continue;
     out.push({
       id: idFor(),
       date: r.date,
