@@ -3,12 +3,12 @@ import { Pressable, View } from 'react-native';
 
 import { Sankey } from '@/components/sankey';
 import { ThemedText } from '@/components/themed-text';
-import { Card, Chips, MonthSwitcher, useCategoryColor, useCategoryLabel, useIsDark, useMoney, WhoseFilter } from '@/components/ui';
+import { Button, Card, Chips, MonthSwitcher, useCategoryColor, useCategoryLabel, useIsDark, useMoney, WhoseFilter } from '@/components/ui';
 import { Spacing, TypeColors } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { OTHER_INCOME, addMonths, incomeSourceOf, incomeTagLabel, monthLabel, incomeInMonths, monthsBetween, moneyFlow, rangeLabel, transactionsInMonths, type FlowNode } from '@/lib/budget';
 import { useBudget } from '@/lib/store';
-import { ITEM_TYPES, type ItemType, type Month } from '@/lib/types';
+import { ITEM_TYPES, type ItemType, type Month, type Transaction } from '@/lib/types';
 
 const TYPE_LABEL = Object.fromEntries(ITEM_TYPES.map((t) => [t.id, t.label])) as Record<ItemType, string>;
 
@@ -22,7 +22,9 @@ const SPANS: { id: Span; label: string }[] = [
 ];
 
 export function MoneyFlowCard({ month }: { month: Month }) {
-  const { state } = useBudget();
+  const { state, recategorize } = useBudget();
+  // A spending line opened from the list under the chart, to change its category / subcategory there.
+  const [edit, setEdit] = useState<{ id: string; cat: string | null; sub: string | null; learn: boolean } | null>(null);
   const theme = useTheme();
   const dark = useIsDark();
   const money = useMoney();
@@ -113,7 +115,7 @@ export function MoneyFlowCard({ month }: { month: Month }) {
         ? ({ id: selected, kind: 'category', key: expandedCat, column: 2, value: Math.round(catPieces.reduce((s, n) => s + n.value, 0) * 100) / 100 } satisfies FlowNode)
         : undefined);
   const topSources = new Set(flow.nodes.filter((n) => n.kind === 'income').map((n) => n.key.toLowerCase()));
-  const lines = !node
+  const lines: { id: string; note?: string; label: string; sub: string; amount: number; tx?: Transaction }[] = !node
     ? []
     : node.kind === 'income'
       ? incomeInMonths(state.income, months)
@@ -131,6 +133,7 @@ export function MoneyFlowCard({ month }: { month: Month }) {
             .filter((t) => node.kind !== 'category' || subPick === null || (t.subcategoryId ?? '') === subPick)
             .map((t) => ({
               id: t.id,
+              tx: t,
               note: t.note,
               label: t.description,
               sub: `${t.date} · ${node.kind === 'category' ? `${subName(t.subcategoryId) ? `${subName(t.subcategoryId)} · ` : ''}${TYPE_LABEL[t.type]}` : catLabel(t.categoryId, t.subcategoryId)}`,
@@ -333,10 +336,18 @@ export function MoneyFlowCard({ month }: { month: Month }) {
               })}
             </View>
           ) : null}
-          {lines.map((l) => (
-            <View
-              key={l.id}
-              style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.two, paddingVertical: Spacing.two, borderTopWidth: 1, borderColor: theme.border }}>
+          {lines.map((l) => {
+            const tx = l.tx;
+            const open = !!tx && edit?.id === tx.id;
+            const subsOf = (catId: string | null) => state.subcategories.filter((x) => x.categoryId === catId);
+            return (
+            <View key={l.id} style={{ borderTopWidth: 1, borderColor: theme.border }}>
+            <Pressable
+              disabled={!tx}
+              accessibilityRole={tx ? 'button' : undefined}
+              accessibilityHint={tx ? 'Change its category' : undefined}
+              onPress={() => tx && setEdit(open ? null : { id: tx.id, cat: tx.categoryId, sub: tx.subcategoryId ?? null, learn: false })}
+              style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.two, paddingVertical: Spacing.two }}>
               <View style={{ flex: 1 }}>
                 {l.note ? <ThemedText type="smallBold">{l.note}</ThemedText> : null}
                 <ThemedText type="small" numberOfLines={2} themeColor={l.note ? 'textSecondary' : undefined}>
@@ -347,8 +358,49 @@ export function MoneyFlowCard({ month }: { month: Month }) {
                 </ThemedText>
               </View>
               <ThemedText type="smallBold">{money(l.amount, true)}</ThemedText>
+            </Pressable>
+            {open && edit ? (
+              <View style={{ gap: Spacing.one, paddingBottom: Spacing.three }}>
+                <ThemedText type="small" themeColor="textSecondary">
+                  Category
+                </ThemedText>
+                <Chips
+                  options={state.categories.map((c) => ({ id: c.id, label: c.name }))}
+                  value={edit.cat}
+                  swatch={(id) => colorFor(state.categories.find((c) => c.id === id))}
+                  onChange={(cat) => setEdit({ ...edit, cat, sub: null })}
+                />
+                {subsOf(edit.cat).length ? (
+                  <>
+                    <ThemedText type="small" themeColor="textSecondary">
+                      Subcategory (optional)
+                    </ThemedText>
+                    <Chips
+                      options={[{ id: '', label: 'No subcategory' }, ...subsOf(edit.cat).map((x) => ({ id: x.id, label: x.name }))]}
+                      value={edit.sub ?? ''}
+                      onChange={(sub) => setEdit({ ...edit, sub: sub || null })}
+                    />
+                  </>
+                ) : null}
+                <Pressable onPress={() => setEdit({ ...edit, learn: !edit.learn })} accessibilityRole="checkbox" accessibilityState={{ checked: edit.learn }}>
+                  <ThemedText type="small">{edit.learn ? '☑' : '☐'} Also sort other payments from this place this way</ThemedText>
+                </Pressable>
+                <View style={{ flexDirection: 'row', gap: Spacing.two }}>
+                  <Button
+                    label="Save"
+                    disabled={!edit.cat}
+                    onPress={() => {
+                      recategorize(edit.id, edit.cat!, edit.learn, edit.sub ?? undefined);
+                      setEdit(null);
+                    }}
+                  />
+                  <Button label="Cancel" kind="secondary" onPress={() => setEdit(null)} />
+                </View>
+              </View>
+            ) : null}
             </View>
-          ))}
+            );
+          })}
         </View>
       ) : null}
     </Card>
