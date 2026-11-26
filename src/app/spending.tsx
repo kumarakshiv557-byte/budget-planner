@@ -34,7 +34,8 @@ type Draft = { id?: string; date: string; description: string; amount: string; c
 const TYPE_LABEL = Object.fromEntries(ITEM_TYPES.map((t) => [t.id, t.label]));
 /** Type choices when sorting, with a one-tap "Subscription" (recurring, fixed, debited automatically) first. */
 type TypePick = ItemType;
-type Pick = { cat?: string; type?: TypePick; pay?: Payment; due?: string; note?: string; remark?: string; /** Typing a new subcategory (null = closed). */ newSub?: string | null };
+const NEW_CAT = '__new-category';
+type Pick = { cat?: string; type?: TypePick; pay?: Payment; due?: string; note?: string; remark?: string; /** Typing a new subcategory (null = closed). */ newSub?: string | null; /** Typing a new category (null = closed). */ newCat?: string | null };
 const PAY_PICKS: { id: Payment; label: string }[] = [
   { id: 'auto', label: '⚡ Subscription (auto-debited)' },
   { id: 'manual', label: 'Pay myself' },
@@ -85,7 +86,7 @@ function BankDetails({ d }: { d?: TxDetails }) {
 }
 
 export default function SpendingScreen() {
-  const { state, allState, whose, saveTransaction, resortTransaction, unsortTransaction, deleteTransaction, addTransactions, sortTransaction, markTransfer, undoTransfer, addSubcategory, saveItem, addIncome, } = useBudget();
+  const { state, allState, whose, saveTransaction, resortTransaction, unsortTransaction, deleteTransaction, addTransactions, sortTransaction, markTransfer, undoTransfer, addCategory, addSubcategory, saveItem, addIncome, } = useBudget();
   // When fixing a sorted payment: also fix the others from the same place sorted the same way.
   const [fixOthers, setFixOthers] = useState(true);
   // A bill just added from "to sort", offered for the calendar.
@@ -211,7 +212,7 @@ export default function SpendingScreen() {
   const typeSwatch = (id: TypePick) => TypeColors[id][dark ? 1 : 0];
   const sortSwatch = (id: string) => {
     const catId = id.startsWith('s:') ? state.subcategories.find((x) => x.id === id.slice(2))?.categoryId : id.slice(2);
-    return colorFor(state.categories.find((c) => c.id === catId));
+    return id === NEW_CAT ? theme.textSecondary : colorFor(state.categories.find((c) => c.id === catId));
   };
   /**
    * A row is sorted once it has a category and a type. A recurring type also needs "how is it paid?";
@@ -507,11 +508,35 @@ export default function SpendingScreen() {
                 Category
               </ThemedText>
               <Chips
-                options={sortOptions}
-                value={catOfPick(picks[t.id]?.cat) ? `c:${catOfPick(picks[t.id]?.cat)}` : null}
+                options={[...sortOptions, { id: NEW_CAT, label: '+ New category' }]}
+                value={picks[t.id]?.newCat != null ? NEW_CAT : catOfPick(picks[t.id]?.cat) ? `c:${catOfPick(picks[t.id]?.cat)}` : null}
                 swatch={sortSwatch}
-                onChange={(cat) => pickFor(t, { cat })}
+                onChange={(cat) =>
+                  cat === NEW_CAT
+                    ? setPicks({ ...picks, [t.id]: { ...picks[t.id], newCat: picks[t.id]?.newCat != null ? null : '' } })
+                    : pickFor(t, { cat, newCat: null })
+                }
               />
+              {picks[t.id]?.newCat != null ? (
+                <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: Spacing.two }}>
+                  <Field
+                    label="New category"
+                    value={picks[t.id]?.newCat ?? ''}
+                    autoFocus
+                    onChangeText={(newCat) => setPicks({ ...picks, [t.id]: { ...picks[t.id], newCat } })}
+                    placeholder="e.g. Health"
+                  />
+                  <Button
+                    label="Add"
+                    disabled={!picks[t.id]?.newCat?.trim()}
+                    onPress={() => {
+                      const id = addCategory(picks[t.id]!.newCat!);
+                      // Picked, but not sorted yet: the type is still to choose.
+                      setPicks({ ...picks, [t.id]: { ...picks[t.id], cat: `c:${id}`, newCat: null } });
+                    }}
+                  />
+                </View>
+              ) : null}
               {catOfPick(picks[t.id]?.cat) ? (
                 <View style={{ paddingLeft: Spacing.three, gap: Spacing.one }}>
                   <ThemedText type="small" themeColor="textSecondary">

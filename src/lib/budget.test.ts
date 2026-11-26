@@ -671,3 +671,11 @@ test('a rule with an amount range only sorts payments inside it', () => {
   // Without an amount, only rules with no range apply.
   assert.equal(matchRule('Black Out Gym', rules)?.match, 'gym');
 });
+
+test('a new category gets the next colour not already used', async () => {
+  const { newCategory } = await import('./budget.ts');
+  const cats = initialState().categories;
+  const a = newCategory(cats, 'x', '  Health ');
+  assert.deepEqual([a.name, a.color], ['Health', '#1a9e9e']);
+  assert.equal(newCategory([...cats, a], 'y', 'Kids').color, '#4a9d3f');
+});
