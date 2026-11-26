@@ -5,13 +5,13 @@ import { ThemedText } from '@/components/themed-text';
 import { Button, Card, Checkbox, Chips, Field, Label, MonthSwitcher, PersonChips, Screen, styles, useMoney, usePersonTag, WhoseFilter } from '@/components/ui';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { currentMonth, incomeIn, incomeSubTagsOf, incomeTagLabel, incomeTagsOf, monthLabel, transferRuleOf } from '@/lib/budget';
+import { currentMonth, incomeIn, incomeSubSubTagsOf, incomeSubTagsOf, incomeTagLabel, incomeTagsOf, monthLabel, transferRuleOf } from '@/lib/budget';
 import { useBudget } from '@/lib/store';
 import { ownerOf } from '@/lib/types';
 
 const OWN_TAG = '__own';
 
-type IncomeDraft = { id?: string; date: string; description: string; amount: string; owner?: string; monthly?: boolean; endMonth?: string; tag?: string; note?: string; newTag?: string; subTag?: string };
+type IncomeDraft = { id?: string; date: string; description: string; amount: string; owner?: string; monthly?: boolean; endMonth?: string; tag?: string; note?: string; newTag?: string; subTag?: string; subSubTag?: string };
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -29,10 +29,13 @@ export default function IncomeScreen() {
   const [ownTag, setOwnTag] = useState<{ id: string; text: string; sub?: string } | null>(null);
 
   const incomeList = incomeIn(state.income, month).sort((a, b) => b.date.localeCompare(a.date));
-  const untagged = incomeList.filter((t) => !t.tag);
+  // Lines tagged only by the default for unknown senders stay here, so they can still be given their own tag.
+  const untagged = incomeList.filter((t) => !t.tag || t.defaulted);
   const tagOptions = incomeTagsOf(state).map((t) => ({ id: t, label: t }));
   const draftTag = (incomeDraft?.newTag?.trim() || incomeDraft?.tag)?.trim() || undefined;
   const draftSubTags = incomeSubTagsOf(state, draftTag);
+  const draftSub = (draftTag && incomeDraft?.subTag?.trim()) || undefined;
+  const draftSubSubTags = incomeSubSubTagsOf(state, draftTag, draftSub);
   const incomeEditing = incomeDraft?.id ? state.income.find((x) => x.id === incomeDraft.id) : undefined;
   const incomeAmount = Number((incomeDraft?.amount ?? '').replace(',', '.'));
   const incomeValid =
@@ -43,9 +46,13 @@ export default function IncomeScreen() {
     const tag = (incomeDraft.newTag?.trim() || incomeDraft.tag)?.trim() || undefined;
     const note = incomeDraft.note?.trim() || undefined;
     const subTag = (tag && incomeDraft.subTag?.trim()) || undefined;
+    const subSubTag = (subTag && incomeDraft.subSubTag?.trim()) || undefined;
     saveIncome({
       ...(!before && tag ? { tag } : {}),
       ...(!before && subTag ? { subTag } : {}),
+      ...(!before && subSubTag ? { subSubTag } : {}),
+      ...(before?.subSubTag ? { subSubTag: before.subSubTag } : {}),
+      ...(before?.defaulted ? { defaulted: true } : {}),
       ...(before?.subTag ? { subTag: before.subTag } : {}),
       ...(!before && note ? { note } : {}),
       ...(before?.tag ? { tag: before.tag } : {}),
@@ -60,7 +67,8 @@ export default function IncomeScreen() {
       ...(incomeDraft.monthly && (before?.source ?? 'manual') === 'manual' ? { monthly: true, ...(incomeDraft.endMonth ? { endMonth: incomeDraft.endMonth } : {}) } : {}),
     });
     // Changing the tag or note of an existing line goes through tagging, so it can be remembered for the sender.
-    if (before && (tag !== before.tag || note !== before.note || subTag !== before.subTag)) tagIncome(before.id, tag, note, learn, subTag);
+    if (before && (tag !== before.tag || note !== before.note || subTag !== before.subTag || subSubTag !== before.subSubTag || before.defaulted))
+      tagIncome(before.id, tag, note, learn, subTag, subSubTag);
     setIncomeDraft(null);
   };
 
@@ -94,6 +102,7 @@ export default function IncomeScreen() {
             <ThemedText type="smallBold">{untagged.length} to tag</ThemedText>
             <ThemedText type="small" themeColor="textSecondary">
               Pick what each one is. With “remember” on, money from the same sender is tagged the same way, now and in future.
+              {allState.defaultIncomeTag?.tag ? ` Senders you haven't tagged go under ${incomeTagLabel(allState.defaultIncomeTag)} until you do.` : ''}
             </ThemedText>
             <Pressable onPress={() => setLearn(!learn)} accessibilityRole="checkbox" accessibilityState={{ checked: learn }}>
               <ThemedText type="small">{learn ? '☑' : '☐'} Remember my choices</ThemedText>
@@ -104,6 +113,7 @@ export default function IncomeScreen() {
                   <ThemedText type="small" style={{ flex: 1 }}>
                     {t.description} · {t.date.slice(8)} {monthLabel(month, 'short')}
                     {personTag(t)}
+                    {t.defaulted ? ` · for now ${incomeTagLabel(t)}` : ''}
                   </ThemedText>
                   <ThemedText type="smallBold" style={{ color: theme.good }}>
                     +{money(t.amount, true)}
@@ -169,7 +179,20 @@ export default function IncomeScreen() {
                     onChange={(x) => setIncomeDraft({ ...incomeDraft, subTag: incomeDraft.subTag?.trim() === x ? '' : x })}
                   />
                 ) : null}
-                <Field label="Sub-tag" value={incomeDraft.subTag ?? ''} onChangeText={(subTag) => setIncomeDraft({ ...incomeDraft, subTag })} placeholder="e.g. Ahmed" />
+                <Field label="Sub-tag" value={incomeDraft.subTag ?? ''} onChangeText={(subTag) => setIncomeDraft({ ...incomeDraft, subTag })} placeholder="e.g. Staff" />
+              </>
+            ) : null}
+            {draftTag && draftSub ? (
+              <>
+                <Label>Under “{draftTag} › {draftSub}” (optional)</Label>
+                {draftSubSubTags.length ? (
+                  <Chips
+                    options={draftSubSubTags.map((x) => ({ id: x, label: x }))}
+                    value={draftSubSubTags.find((x) => x === incomeDraft.subSubTag?.trim()) ?? null}
+                    onChange={(x) => setIncomeDraft({ ...incomeDraft, subSubTag: incomeDraft.subSubTag?.trim() === x ? '' : x })}
+                  />
+                ) : null}
+                <Field label="Name" value={incomeDraft.subSubTag ?? ''} onChangeText={(subSubTag) => setIncomeDraft({ ...incomeDraft, subSubTag })} placeholder="e.g. Ahmed" />
               </>
             ) : null}
             {incomeDraft.id && incomeEditing?.source !== 'manual' ? (
@@ -224,7 +247,7 @@ export default function IncomeScreen() {
             onPress={() => {
               // A monthly entry is edited as a whole, from its first month.
               const saved = state.income.find((x) => x.id === t.id) ?? t;
-              setIncomeDraft({ id: t.id, date: saved.date, description: t.description, amount: String(t.amount), owner: t.owner, monthly: t.monthly, endMonth: t.endMonth, tag: saved.tag, subTag: saved.subTag, note: saved.note });
+              setIncomeDraft({ id: t.id, date: saved.date, description: t.description, amount: String(t.amount), owner: t.owner, monthly: t.monthly, endMonth: t.endMonth, tag: saved.tag, subTag: saved.subTag, subSubTag: saved.subSubTag, note: saved.note });
             }}
             style={{ flexDirection: 'row', gap: Spacing.two, alignItems: 'center', paddingVertical: 6, borderTopWidth: 1, borderColor: theme.border }}>
             <View style={{ flex: 1 }}>

@@ -640,3 +640,22 @@ test('a tagged income source always gets its own block; only untagged senders go
   const keys = moneyFlow(s, '2026-11').nodes.filter((n) => n.kind === 'income').map((n) => [n.key, n.value]);
   assert.deepEqual(keys, [['Coins', 700], ['SENDER b', 400], ['SENDER c', 385], ['Notes', 200], ['__other', 740]]);
 });
+
+test('senders with no rule get the default tag; a third level splits a sub-tag in the money flow', async () => {
+  const { tagNewIncome, incomeTagLabel, tagIncomeIn } = await import('./budget.ts');
+  const inc = (id: string, amount: number, description: string) => ({ id, date: '2026-11-10', description, amount, source: 'revolut' }) as import('./types.ts').Income;
+  let s = {
+    ...initialState(),
+    incomeRules: [{ match: 'ahmed mujtaba', tag: 'mbway', subTag: 'Staff', subSubTag: 'Ahmed' }, { match: 'dep.notas', tag: 'Notes' }],
+    defaultIncomeTag: { tag: 'mbway', subTag: 'Direct clients' },
+  } as BudgetState;
+  const got = tagNewIncome(s, [inc('a', 100, 'TRF.IMED. DE AHMED MUJTABA KHAN'), inc('b', 400, 'MAHMOOD IQBAL'), inc('c', 50, '9141613 DEP.NOTAS X')]);
+  assert.deepEqual(got.map((i) => [incomeTagLabel(i), !!i.defaulted]), [['mbway › Staff › Ahmed', false], ['mbway › Direct clients', true], ['Notes', false]]);
+  s = { ...s, income: got };
+  // Tagging a defaulted line clears the flag.
+  assert.equal(tagIncomeIn(s, 'b', 'Side work', undefined, false).income.find((i) => i.id === 'b')!.defaulted, undefined);
+  const tag = moneyFlow(s, '2026-11', 5, { expand: 'mbway' }).nodes.filter((n) => n.kind === 'income').map((n) => [n.sub, n.value]);
+  assert.deepEqual(tag, [['Direct clients', 400], ['Staff', 100], [undefined, 50]]);
+  const deeper = moneyFlow(s, '2026-11', 5, { expand: 'mbway', expandSub: 'Staff' }).nodes.filter((n) => n.kind === 'income').map((n) => [n.sub, n.subSub, n.value]);
+  assert.deepEqual(deeper, [['Direct clients', undefined, 400], ['Staff', 'Ahmed', 100], [undefined, undefined, 50]]);
+});
