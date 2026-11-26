@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AppState, Platform } from 'react-native';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
-import { forPerson, forgetTransferRuleIn, markTransferIn, putBackTransferIn, tagIncomeIn, tagNewIncome, newId, recategorizeIn, resortIn, ruleFrom, sortIn, unmarkTransferIn, unsortIn, type SortPick } from './budget.ts';
+import { forPerson, forgetTransferRuleIn, newCategory, markTransferIn, putBackTransferIn, tagIncomeIn, tagNewIncome, newId, recategorizeIn, resortIn, ruleFrom, sortIn, unmarkTransferIn, unsortIn, type SortPick } from './budget.ts';
 import { cloudApi, decide, type CloudMeta, type CloudStatus } from './cloud.ts';
 import { initialState, migrate } from './defaults.ts';
 import { applyTransfers, SYNC_CONFIG_KEY, type SyncConfig } from './sync.ts';
@@ -56,6 +56,8 @@ type Actions = {
   putBackTransfer: (lineId: string, forgetRule: boolean) => void;
   /** Stop treating payments matching this text as transfers; the next sync brings back what was left out. */
   forgetTransferRule: (rule: string) => void;
+  /** Adds a category (with the next free colour) and returns its id. */
+  addCategory: (name: string) => string;
   /** Adds a subcategory and returns its id. */
   addSubcategory: (categoryId: string, name: string) => string;
   renameSubcategory: (id: string, name: string) => void;
@@ -276,6 +278,11 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
       undoTransfer: (removed, rule) => update((s) => unmarkTransferIn(s, removed, rule)),
       putBackTransfer: (lineId, forgetRule) => update((s) => putBackTransferIn(s, lineId, forgetRule)),
       forgetTransferRule: (rule) => update((s) => forgetTransferRuleIn(s, rule)),
+      addCategory: (name) => {
+        const id = newId();
+        update((s) => ({ ...s, categories: [...s.categories, newCategory(s.categories, id, name)] }));
+        return id;
+      },
       addSubcategory: (categoryId, name) => {
         const id = newId();
         update((s) => ({ ...s, subcategories: [...s.subcategories, { id, categoryId, name: name.trim() }] }));

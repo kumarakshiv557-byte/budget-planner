@@ -13,8 +13,9 @@ import { useRevolutSync } from '@/lib/use-revolut-sync';
 const CURRENCIES = ['EUR', 'INR', 'GBP', 'USD'].map((c) => ({ id: c, label: c }));
 
 export default function SettingsScreen() {
-  const { state, cloud, renamePerson, updateCategory, setCurrency, resetAll, addSubcategory, renameSubcategory, deleteSubcategory } = useBudget();
+  const { state, cloud, renamePerson, updateCategory, setCurrency, resetAll, addCategory, addSubcategory, renameSubcategory, deleteSubcategory } = useBudget();
   const [newSub, setNewSub] = useState<Record<string, string>>({});
+  const [newCat, setNewCat] = useState('');
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const colorFor = useCategoryColor();
   const theme = useTheme();
@@ -38,7 +39,7 @@ export default function SettingsScreen() {
 
       <Card
         title="Categories"
-        subtitle="Rename categories and add subcategories (like Eating out under Frivolous). Whether something is recurring or one-time is set on each line, not here.">
+        subtitle="Add or rename categories, and add subcategories (like Eating out under Frivolous). Whether something is recurring or one-time is set on each line, not here.">
         {state.categories.map((c) => (
           <View key={c.id} style={{ gap: Spacing.two, paddingVertical: Spacing.three, borderTopWidth: 1, borderColor: theme.border }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.two }}>
@@ -86,6 +87,17 @@ export default function SettingsScreen() {
             </View>
           </View>
         ))}
+        <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: Spacing.two, paddingTop: Spacing.three, borderTopWidth: 1, borderColor: theme.border }}>
+          <Field label="New category" value={newCat} onChangeText={setNewCat} placeholder="e.g. Health" />
+          <Button
+            label="Add category"
+            disabled={!newCat.trim() || state.categories.some((c) => c.name.trim().toLowerCase() === newCat.trim().toLowerCase())}
+            onPress={() => {
+              addCategory(newCat);
+              setNewCat('');
+            }}
+          />
+        </View>
       </Card>
 
       <RevolutSyncCard />

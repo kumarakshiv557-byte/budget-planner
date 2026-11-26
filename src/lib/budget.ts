@@ -1,4 +1,4 @@
-import { DEFAULT_INCOME_TAGS, isRecurring, ownerOf, type BudgetItem, type BudgetState, type Income, type IncomeRule, type ItemType, type Month, type Payment, type Transaction } from './types.ts';
+import { DEFAULT_INCOME_TAGS, isRecurring, ownerOf, type BudgetItem, type BudgetState, type Category, type Income, type IncomeRule, type ItemType, type Month, type Payment, type Transaction } from './types.ts';
 
 export function monthOf(date: string): Month {
   return date.slice(0, 7);
@@ -162,6 +162,23 @@ export function forPerson(state: BudgetState, whose: string): BudgetState {
 }
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
+
+/** Colours for categories you add yourself (light / dark), used in order, skipping ones already taken. */
+const EXTRA_CATEGORY_COLORS: [string, string][] = [
+  ['#1a9e9e', '#2bb3b3'],
+  ['#4a9d3f', '#5cb150'],
+  ['#a0703c', '#b8864f'],
+  ['#d03b3b', '#e05454'],
+  ['#5b6b82', '#7486a0'],
+  ['#b5a000', '#c9b316'],
+];
+
+/** A new category with the next free colour. */
+export function newCategory(existing: Category[], id: string, name: string): Category {
+  const used = new Set(existing.map((c) => c.color));
+  const [color, colorDark] = EXTRA_CATEGORY_COLORS.find(([c]) => !used.has(c)) ?? EXTRA_CATEGORY_COLORS[existing.length % EXTRA_CATEGORY_COLORS.length];
+  return { id, name: name.trim(), color, colorDark };
+}
 
 export function summarizeMonth(state: BudgetState, month: Month): MonthSummary {
   const byCat = new Map<string | null, CategoryRow>();
