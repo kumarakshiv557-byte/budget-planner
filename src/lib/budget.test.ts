@@ -330,7 +330,7 @@ test('bills calendar: one monthly event with a day-before alert per Pay-myself b
   assert.ok(!ics.includes('Spotify'));
 });
 
-test('subscriptions stay out of the pie charts and are one block in the Sankey', () => {
+test('subscriptions stay out of the pie charts but flow into their category and type in the Sankey', () => {
   const s = initialState();
   const tx = (id: string, amount: number, categoryId: string, payment?: 'auto' | 'manual') =>
     ({ id, date: '2026-11-10', description: id, amount, categoryId, type: payment ? 'recurring-fixed' : 'variable-one-time', ...(payment ? { payment } : {}), source: 'revolut' }) as const;
@@ -340,10 +340,10 @@ test('subscriptions stay out of the pie charts and are one block in the Sankey',
   const pie = breakdown(s, '2026-11', 'category', 'actual');
   assert.deepEqual(pie.map((g) => [g.key, g.total]), [['essentials', 800], ['frivolous', 40]]);
   const flow = moneyFlow(s, '2026-11');
-  assert.equal(flow.nodes.find((n) => n.id === 'subscriptions')!.value, 11);
-  assert.equal(flow.nodes.find((n) => n.id === 'cat:frivolous')!.value, 40);
+  assert.ok(!flow.nodes.some((n) => n.id === 'subscriptions'));
+  assert.equal(flow.nodes.find((n) => n.id === 'cat:frivolous')!.value, 51);
+  assert.deepEqual(flow.links.filter((l) => l.source === 'cat:frivolous').map((l) => [l.target, l.value]), [['type:recurring-fixed', 11], ['type:variable-one-time', 40]]);
   assert.equal(flow.nodes.find((n) => n.id === 'leftover')!.value, 149);
-  assert.ok(!flow.links.some((l) => l.source === 'subscriptions'));
 });
 
 test('fixing a wrongly sorted payment also fixes the ones sorted alike and the remembered pick', () => {
