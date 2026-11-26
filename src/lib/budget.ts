@@ -209,12 +209,19 @@ export function trend(state: BudgetState, end: Month, count = 6): MonthSummary[]
  * so "uber eats" beats "uber").
  */
 /** The longest rule whose text appears in the description. */
-export function matchRule(description: string, rules: BudgetState['rules']) {
+/**
+ * The rule for a payment: the longest matching text wins. A rule with an amount range only applies when the
+ * amount is known and inside it, and beats a rule with the same text and no range.
+ */
+export function matchRule(description: string, rules: BudgetState['rules'], amount?: number) {
   const d = ` ${description.toLowerCase().replace(/\s+/g, ' ')} `;
+  const ranged = (r: BudgetState['rules'][number]) => r.minAmount !== undefined || r.maxAmount !== undefined;
   let best: BudgetState['rules'][number] | null = null;
   for (const r of rules) {
     const m = r.match.toLowerCase();
-    if (m && d.includes(m) && (!best || m.length > best.match.length)) best = r;
+    if (!m || !d.includes(m)) continue;
+    if (ranged(r) && (amount === undefined || (r.minAmount !== undefined && amount < r.minAmount) || (r.maxAmount !== undefined && amount > r.maxAmount))) continue;
+    if (!best || m.length > best.match.length || (m.length === best.match.length && ranged(r) && !ranged(best))) best = r;
   }
   return best;
 }

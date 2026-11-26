@@ -166,10 +166,10 @@ function addEatingOut(s: BudgetState): BudgetState {
 }
 
 /** Give uncategorised transactions the category (and subcategory) of the longest matching rule. */
-export function sortUnsorted<T extends { description: string; categoryId: string | null; subcategoryId?: string }>(list: T[], rules: CategoryRule[]): T[] {
+export function sortUnsorted<T extends { description: string; amount?: number; categoryId: string | null; subcategoryId?: string }>(list: T[], rules: CategoryRule[]): T[] {
   return list.map((t) => {
     if (t.categoryId) return t;
-    const r = matchRule(t.description, rules);
+    const r = matchRule(t.description, rules, t.amount);
     return r ? { ...t, categoryId: r.categoryId, ...(r.subcategoryId ? { subcategoryId: r.subcategoryId } : {}) } : t;
   });
 }

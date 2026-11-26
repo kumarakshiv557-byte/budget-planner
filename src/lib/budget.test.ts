@@ -659,3 +659,15 @@ test('senders with no rule get the default tag; a third level splits a sub-tag i
   const deeper = moneyFlow(s, '2026-11', 5, { expand: 'mbway', expandSub: 'Staff' }).nodes.filter((n) => n.kind === 'income').map((n) => [n.sub, n.subSub, n.value]);
   assert.deepEqual(deeper, [['Direct clients', undefined, 400], ['Staff', 'Ahmed', 100], [undefined, undefined, 50]]);
 });
+
+test('a rule with an amount range only sorts payments inside it', () => {
+  const rules = [
+    { match: 'gym', categoryId: 'essentials', type: 'recurring-fixed' as const },
+    { match: 'black out gym', categoryId: 'essentials', type: 'recurring-fixed' as const, payment: 'auto' as const, minAmount: 50 },
+    { match: 'black out gym', categoryId: 'frivolous', type: 'variable-one-time' as const, maxAmount: 49.99 },
+  ];
+  assert.equal(matchRule('Black Out Gym', rules, 100)?.categoryId, 'essentials');
+  assert.equal(matchRule('COMPRA 6134 BLACK OUT GYM', rules, 3)?.categoryId, 'frivolous');
+  // Without an amount, only rules with no range apply.
+  assert.equal(matchRule('Black Out Gym', rules)?.match, 'gym');
+});

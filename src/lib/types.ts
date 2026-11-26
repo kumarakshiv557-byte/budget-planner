@@ -155,7 +155,17 @@ export const DEFAULT_INCOME_TAGS = ['Salary', 'Side work', 'Refund', 'Family', '
  * "Anything matching this text goes to this category" (and, if set, gets this type).
  * Learned when the user recategorises or retypes a transaction. Types belong to each line, not to a category.
  */
-export type CategoryRule = { match: string; categoryId: string; subcategoryId?: string; type?: ItemType; payment?: Payment; note?: string };
+export type CategoryRule = {
+  match: string;
+  categoryId: string;
+  subcategoryId?: string;
+  type?: ItemType;
+  payment?: Payment;
+  note?: string;
+  /** Only for payments of at least / at most this amount (e.g. the €100 gym membership vs small gym bar buys). */
+  minAmount?: number;
+  maxAmount?: number;
+};
 
 export type BudgetState = {
   version: 1;

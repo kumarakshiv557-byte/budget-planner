@@ -1,4 +1,4 @@
-import { matchRule, typeFor } from './budget.ts';
+import { matchRule } from './budget.ts';
 import type { BudgetState, Income, Transaction } from './types.ts';
 
 /** Split one CSV line, honouring double-quoted fields. */
@@ -101,17 +101,18 @@ export function parseRevolutCsv(text: string, state: BudgetState, idFor: () => s
     existing.add(externalId);
     if (iCurrency >= 0 && f[iCurrency]) currencies.add(f[iCurrency]);
 
-    const rule = matchRule(description, state.rules);
+    const spent = Math.round((-amount + fee) * 100) / 100;
+    const rule = matchRule(description, state.rules, spent);
     const categoryId = rule?.categoryId ?? null;
     transactions.push({
       id: idFor(),
       date,
       description,
       // spending is stored positive; a refund is negative spending
-      amount: Math.round((-amount + fee) * 100) / 100,
+      amount: spent,
       categoryId,
       ...(rule?.subcategoryId ? { subcategoryId: rule.subcategoryId } : {}),
-      type: typeFor(description, state.rules),
+      type: rule?.type ?? 'variable-one-time',
       ...(rule?.payment ? { payment: rule.payment } : {}),
       ...(rule?.note ? { note: rule.note } : {}),
       source: 'csv',

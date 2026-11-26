@@ -1,4 +1,4 @@
-import { isTransferLine, matchRule, transferRuleOf, typeFor } from './budget.ts';
+import { isTransferLine, matchRule, transferRuleOf } from './budget.ts';
 import type { BudgetState, Income, Transaction, TransferLine } from './types.ts';
 import { findTransfers, type SyncedTransaction } from '../../supabase/functions/revolut-sync/eb-normalize.ts';
 
@@ -11,7 +11,7 @@ export function mergeSynced(state: BudgetState, rows: SyncedTransaction[], idFor
   for (const r of rows) {
     if (seen.has(r.externalId) || isTransferLine(r.description, state.transferRules)) continue;
     seen.add(r.externalId);
-    const rule = matchRule(r.description, state.rules);
+    const rule = matchRule(r.description, state.rules, r.amount);
     const categoryId = rule?.categoryId ?? null;
     out.push({
       id: idFor(),
@@ -20,7 +20,7 @@ export function mergeSynced(state: BudgetState, rows: SyncedTransaction[], idFor
       amount: r.amount,
       categoryId,
       ...(rule?.subcategoryId ? { subcategoryId: rule.subcategoryId } : {}),
-      type: typeFor(r.description, state.rules),
+      type: rule?.type ?? 'variable-one-time',
       ...(rule?.payment ? { payment: rule.payment } : {}),
       ...(rule?.note ? { note: rule.note } : {}),
       ...(r.owner && r.owner !== 'me' ? { owner: r.owner } : {}),
