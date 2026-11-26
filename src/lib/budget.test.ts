@@ -621,3 +621,22 @@ test('transfers a sync leaves out are listed once, with why', async () => {
   ]);
   assert.deepEqual(transferLinesFrom({ ...s, transferLog: log }, res, ['eb:5']), []);
 });
+
+test('an expanded category splits into its subcategories in the money flow, each still flowing to types', () => {
+  const tx = (id: string, amount: number, categoryId: string, type: import('./types.ts').ItemType, subcategoryId?: string) =>
+    ({ id, date: '2026-11-20', description: id, amount, categoryId, type, source: 'manual', ...(subcategoryId ? { subcategoryId } : {}) }) as import('./types.ts').Transaction;
+  const s = { ...initialState(), transactions: [tx('a', 40, 'frivolous', 'variable-one-time', 'eating-out'), tx('b', 10, 'frivolous', 'recurring-variable', 'eating-out'), tx('c', 30, 'frivolous', 'variable-one-time'), tx('d', 60, 'essentials', 'variable-one-time')] };
+  const flat = moneyFlow(s, '2026-11').nodes.filter((n) => n.kind === 'category').map((n) => [n.key, n.value]);
+  assert.deepEqual(flat, [['frivolous', 80], ['essentials', 60]]);
+  const split = moneyFlow(s, '2026-11', 5, { expandCategory: 'frivolous' });
+  assert.deepEqual(split.nodes.filter((n) => n.kind === 'category').map((n) => [n.key, n.sub, n.value]), [['frivolous', 'eating-out', 50], ['frivolous', '', 30], ['essentials', undefined, 60]]);
+  assert.deepEqual(split.links.filter((l) => l.source === 'cat:frivolous:eating-out').map((l) => [l.target, l.value]), [['type:variable-one-time', 40], ['type:recurring-variable', 10]]);
+  assert.equal(split.spent, 140);
+});
+
+test('a tagged income source always gets its own block; only untagged senders go into Other income', () => {
+  const inc = (id: string, amount: number, tag?: string) => ({ id, date: '2026-11-10', description: `SENDER ${id}`, amount, source: 'manual', ...(tag ? { tag } : {}) }) as import('./types.ts').Income;
+  const s = { ...initialState(), income: [inc('a', 700, 'Coins'), inc('b', 400), inc('c', 385), inc('d', 300), inc('e', 250), inc('f', 200, 'Notes'), inc('g', 190)] };
+  const keys = moneyFlow(s, '2026-11').nodes.filter((n) => n.kind === 'income').map((n) => [n.key, n.value]);
+  assert.deepEqual(keys, [['Coins', 700], ['SENDER b', 400], ['SENDER c', 385], ['Notes', 200], ['__other', 740]]);
+});

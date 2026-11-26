@@ -336,7 +336,10 @@ export function incomeSubTagsOf(s: Pick<BudgetState, 'income' | 'incomeRules'>, 
 export const OTHER_INCOME = '__other';
 
 export type FlowNodeKind = 'income' | 'gap' | 'total' | 'category' | 'subscriptions' | 'leftover' | 'type';
-/** `sub` is set on the pieces of an income tag split into its sub-tags ('' for lines with no sub-tag). */
+/**
+ * `sub` is set on the pieces of an income tag split into its sub-tags, or of a category split into its
+ * subcategories ('' for lines with no sub-tag / subcategory).
+ */
 export type FlowNode = { id: string; kind: FlowNodeKind; key: string; sub?: string; column: 0 | 1 | 2 | 3; value: number };
 export type FlowLink = { source: string; target: string; value: number };
 
@@ -346,7 +349,7 @@ export type FlowLink = { source: string; target: string; value: number };
  * If spending is more than income, a "gap" source covers the difference (savings or untracked money).
  * Refunds can make a category negative; those are left out of the flow.
  */
-export function moneyFlow(state: BudgetState, period: Month | Month[], maxSources = 5, opts: { expand?: string } = {}) {
+export function moneyFlow(state: BudgetState, period: Month | Month[], maxSources = 5, opts: { expand?: string; expandCategory?: string } = {}) {
   const months = Array.isArray(period) ? period : [period];
   const month = months[months.length - 1];
   const nodes: FlowNode[] = [];
@@ -360,14 +363,23 @@ export function moneyFlow(state: BudgetState, period: Month | Month[], maxSource
     g.value += i.amount;
     bySource.set(k, g);
   }
-  let sources = [...bySource.values()].filter((s) => s.value > 0).sort((a, b) => b.value - a.value);
-  if (sources.length > maxSources) {
-    const rest = sources.slice(maxSources - 1).reduce((s, x) => s + x.value, 0);
-    sources = [...sources.slice(0, maxSources - 1), { label: OTHER_INCOME, value: rest }];
+  // Every tag gets its own block; only untagged senders are grouped into "Other income" when there are too many.
+  const all = [...bySource.values()].filter((s) => s.value > 0).sort((a, b) => b.value - a.value);
+  let sources = all;
+  if (all.length > maxSources) {
+    const tagged = new Set(incomeInMonths(state.income ?? [], months).filter((i) => i.tag?.trim()).map((i) => incomeSourceOf(i).toLowerCase()));
+    const untagged = all.filter((s) => !tagged.has(s.label.toLowerCase()));
+    const room = Math.max(0, maxSources - 1 - (all.length - untagged.length));
+    const kept = new Set(untagged.slice(0, room));
+    const rest = untagged.slice(room);
+    sources = all.filter((s) => tagged.has(s.label.toLowerCase()) || kept.has(s));
+    if (rest.length) sources.push({ label: OTHER_INCOME, value: rest.reduce((s, x) => s + x.value, 0) });
   }
 
   const cat = new Map<string, number>();
   const catType = new Map<string, Map<ItemType, number>>();
+  // Per subcategory of the expanded category: total and per-type amounts.
+  const subType = new Map<string, Map<ItemType, number>>();
   // Subscriptions are one block of their own, not split into categories and types.
   const subs = Math.max(0, round2(months.reduce((s, m) => s + subscriptionsTotal(state, m, 'actual'), 0)));
   for (const t of transactionsInMonths(state.transactions, months)) {
@@ -377,6 +389,11 @@ export function moneyFlow(state: BudgetState, period: Month | Month[], maxSource
     const m = catType.get(c) ?? new Map<ItemType, number>();
     m.set(t.type, (m.get(t.type) ?? 0) + t.amount);
     catType.set(c, m);
+    if (opts.expandCategory && c === opts.expandCategory) {
+      const sm = subType.get(t.subcategoryId ?? '') ?? new Map<ItemType, number>();
+      sm.set(t.type, (sm.get(t.type) ?? 0) + t.amount);
+      subType.set(t.subcategoryId ?? '', sm);
+    }
   }
   const cats = [...cat.entries()].filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
 
@@ -414,17 +431,40 @@ export function moneyFlow(state: BudgetState, period: Month | Month[], maxSource
   nodes.push({ id: 'total', kind: 'total', key: month, column: 1, value: round2(total) });
 
   const typeTotals = new Map<ItemType, number>();
-  for (const [c, v] of cats) {
-    nodes.push({ id: `cat:${c}`, kind: 'category', key: c, column: 2, value: round2(v) });
-    links.push({ source: 'total', target: `cat:${c}`, value: round2(v) });
-    // Within a category, refunds of one type are netted against the others so the split still adds up.
-    const parts = [...(catType.get(c) ?? new Map()).entries()].filter(([, x]) => x > 0);
+  // Within a category (or subcategory), refunds of one type are netted against the others so the split still adds up.
+  const toTypes = (from: string, byType: Map<ItemType, number>, v: number) => {
+    const parts = [...byType.entries()].filter(([, x]) => x > 0);
     const sum = parts.reduce((s, [, x]) => s + x, 0);
     for (const [type, x] of parts) {
       const share = round2((x / sum) * v);
-      links.push({ source: `cat:${c}`, target: `type:${type}`, value: share });
+      links.push({ source: from, target: `type:${type}`, value: share });
       typeTotals.set(type, (typeTotals.get(type) ?? 0) + share);
     }
+  };
+  for (const [c, v] of cats) {
+    // An expanded category shows as one block per subcategory, biggest first.
+    const split =
+      c === opts.expandCategory
+        ? [...subType.entries()]
+            .map(([sub, m]) => [sub, m, [...m.values()].reduce((a, x) => a + x, 0)] as const)
+            .filter(([, , x]) => x > 0)
+            .sort((a, b) => b[2] - a[2])
+        : [];
+    if (split.some(([sub]) => sub)) {
+      // A subcategory refunded below zero is left out; the rest are scaled so the pieces still add up to the category.
+      const scale = v / split.reduce((a, [, , x]) => a + x, 0);
+      for (const [sub, m, raw] of split) {
+        const x = raw * scale;
+        const id = `cat:${c}:${sub}`;
+        nodes.push({ id, kind: 'category', key: c, sub, column: 2, value: round2(x) });
+        links.push({ source: 'total', target: id, value: round2(x) });
+        toTypes(id, m, x);
+      }
+      continue;
+    }
+    nodes.push({ id: `cat:${c}`, kind: 'category', key: c, column: 2, value: round2(v) });
+    links.push({ source: 'total', target: `cat:${c}`, value: round2(v) });
+    toTypes(`cat:${c}`, catType.get(c) ?? new Map(), v);
   }
   if (subs > 0) {
     nodes.push({ id: 'subscriptions', kind: 'subscriptions', key: 'subscriptions', column: 2, value: subs });
