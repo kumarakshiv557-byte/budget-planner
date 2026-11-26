@@ -124,8 +124,12 @@ export type Income = {
   tag?: string;
   /** Your own note on what it was for. Remembered per sender with the tag. */
   note?: string;
-  /** A finer label under the tag (tag "MBWay", sub-tag "Ahmed"). Remembered per sender with the tag. */
+  /** A finer label under the tag (tag "MBWay", sub-tag "Staff"). Remembered per sender with the tag. */
   subTag?: string;
+  /** A third level under the sub-tag (MBWay › Staff › "Ahmed"). Remembered per sender with the tag. */
+  subSubTag?: string;
+  /** Tagged by the default for senders with no rule of their own (still listed under "to tag"). */
+  defaulted?: boolean;
 };
 
 /** A bank line left out because it only moved money between your own accounts. */
@@ -142,7 +146,7 @@ export type TransferLine = {
 };
 
 /** "Money in from anyone matching this text gets this tag (and note)." */
-export type IncomeRule = { match: string; tag: string; subTag?: string; note?: string };
+export type IncomeRule = { match: string; tag: string; subTag?: string; subSubTag?: string; note?: string };
 
 /** Starter income tags; you can add your own. */
 export const DEFAULT_INCOME_TAGS = ['Salary', 'Side work', 'Refund', 'Family', 'Gift', 'Interest', 'Other'];
@@ -151,7 +155,17 @@ export const DEFAULT_INCOME_TAGS = ['Salary', 'Side work', 'Refund', 'Family', '
  * "Anything matching this text goes to this category" (and, if set, gets this type).
  * Learned when the user recategorises or retypes a transaction. Types belong to each line, not to a category.
  */
-export type CategoryRule = { match: string; categoryId: string; subcategoryId?: string; type?: ItemType; payment?: Payment; note?: string };
+export type CategoryRule = {
+  match: string;
+  categoryId: string;
+  subcategoryId?: string;
+  type?: ItemType;
+  payment?: Payment;
+  note?: string;
+  /** Only for payments of at least / at most this amount (e.g. the €100 gym membership vs small gym bar buys). */
+  minAmount?: number;
+  maxAmount?: number;
+};
 
 export type BudgetState = {
   version: 1;
@@ -170,6 +184,8 @@ export type BudgetState = {
   incomeTags?: string[];
   /** Remembered income tags per sender. */
   incomeRules?: IncomeRule[];
+  /** Tag for money in from a sender with no rule of their own (e.g. MBWay › Direct clients). */
+  defaultIncomeTag?: { tag: string; subTag?: string };
   /** Text of payments you marked as moving money between your own accounts ("p/ akshiv kumar"); such lines are never imported. */
   transferRules?: string[];
   /** Lines you took out as transfers, kept so they can be put back from the Income tab (newest last). */
