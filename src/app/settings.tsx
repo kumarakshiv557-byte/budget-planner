@@ -6,6 +6,7 @@ import { Button, Card, Chips, Field, Screen, styles, useCategoryColor } from '@/
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { useBudget } from '@/lib/store';
+import { childSubsOf, topSubsOf } from '@/lib/budget';
 import { useBillPush } from '@/lib/use-bill-push';
 import { connectLink, syncApi, type SyncConfig } from '@/lib/sync';
 import { useRevolutSync } from '@/lib/use-revolut-sync';
@@ -46,28 +47,55 @@ export default function SettingsScreen() {
               <View style={{ width: 12, height: 12, borderRadius: 6, backgroundColor: colorFor(c) }} />
               <Field label="Name" value={c.name} onChangeText={(name) => updateCategory(c.id, { name })} />
             </View>
-            {state.subcategories
-              .filter((x) => x.categoryId === c.id)
-              .map((x) => {
-                const used = state.transactions.filter((t) => t.subcategoryId === x.id).length;
-                return (
-                  <View key={x.id} style={{ flexDirection: 'row', alignItems: 'flex-end', gap: Spacing.two, paddingLeft: Spacing.four }}>
-                    <Field label="Subcategory" value={x.name} onChangeText={(name) => renameSubcategory(x.id, name)} />
-                    {confirmDelete === x.id ? (
-                      <Button
-                        label={used ? `Remove (${used} move to ${c.name})` : 'Remove'}
-                        kind="danger"
-                        onPress={() => {
-                          deleteSubcategory(x.id);
-                          setConfirmDelete(null);
-                        }}
-                      />
-                    ) : (
-                      <Button label="Remove" kind="secondary" onPress={() => setConfirmDelete(x.id)} />
-                    )}
+            {topSubsOf(state.subcategories, c.id).map((top) => (
+              <View key={top.id} style={{ gap: Spacing.two }}>
+                {[top, ...childSubsOf(state.subcategories, top.id)].map((x) => {
+                  const used = state.transactions.filter((t) => t.subcategoryId === x.id).length;
+                  const child = !!x.parentId;
+                  return (
+                    <View key={x.id} style={{ flexDirection: 'row', alignItems: 'flex-end', gap: Spacing.two, paddingLeft: child ? Spacing.five : Spacing.four }}>
+                      <Field label={child ? `Under ${top.name}` : 'Subcategory'} value={x.name} onChangeText={(name) => renameSubcategory(x.id, name)} />
+                      {confirmDelete === x.id ? (
+                        <Button
+                          label={used ? `Remove (${used} move to ${child ? top.name : c.name})` : 'Remove'}
+                          kind="danger"
+                          onPress={() => {
+                            deleteSubcategory(x.id);
+                            setConfirmDelete(null);
+                          }}
+                        />
+                      ) : (
+                        <Button label="Remove" kind="secondary" onPress={() => setConfirmDelete(x.id)} />
+                      )}
+                    </View>
+                  );
+                })}
+                {newSub[`u:${top.id}`] !== undefined ? (
+                  <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: Spacing.two, paddingLeft: Spacing.five }}>
+                    <Field
+                      label={`New under ${top.name}`}
+                      value={newSub[`u:${top.id}`] ?? ''}
+                      onChangeText={(v) => setNewSub({ ...newSub, [`u:${top.id}`]: v })}
+                      placeholder="e.g. Santander"
+                    />
+                    <Button
+                      label="Add"
+                      kind="secondary"
+                      disabled={!(newSub[`u:${top.id}`] ?? '').trim()}
+                      onPress={() => {
+                        addSubcategory(c.id, newSub[`u:${top.id}`] ?? '', top.id);
+                        const { [`u:${top.id}`]: _done, ...rest } = newSub;
+                        setNewSub(rest);
+                      }}
+                    />
                   </View>
-                );
-              })}
+                ) : (
+                  <View style={{ paddingLeft: Spacing.five, alignItems: 'flex-start' }}>
+                    <Button label={`+ Add under ${top.name}`} kind="secondary" onPress={() => setNewSub({ ...newSub, [`u:${top.id}`]: '' })} />
+                  </View>
+                )}
+              </View>
+            ))}
             <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: Spacing.two, paddingLeft: Spacing.four }}>
               <Field
                 label={`New subcategory in ${c.name}`}

@@ -58,8 +58,8 @@ type Actions = {
   forgetTransferRule: (rule: string) => void;
   /** Adds a category (with the next free colour) and returns its id. */
   addCategory: (name: string) => string;
-  /** Adds a subcategory and returns its id. */
-  addSubcategory: (categoryId: string, name: string) => string;
+  /** Adds a subcategory (under another one with `parentId`) and returns its id. */
+  addSubcategory: (categoryId: string, name: string, parentId?: string) => string;
   renameSubcategory: (id: string, name: string) => void;
   deleteSubcategory: (id: string) => void;
   updateCategory: (id: string, patch: Partial<Pick<Category, 'name'>>) => void;
@@ -283,23 +283,26 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
         update((s) => ({ ...s, categories: [...s.categories, newCategory(s.categories, id, name)] }));
         return id;
       },
-      addSubcategory: (categoryId, name) => {
+      addSubcategory: (categoryId, name, parentId) => {
         const id = newId();
-        update((s) => ({ ...s, subcategories: [...s.subcategories, { id, categoryId, name: name.trim() }] }));
+        update((s) => ({ ...s, subcategories: [...s.subcategories, { id, categoryId, name: name.trim(), ...(parentId ? { parentId } : {}) }] }));
         return id;
       },
       renameSubcategory: (id, name) =>
         update((s) => ({ ...s, subcategories: s.subcategories.map((c) => (c.id === id ? { ...c, name } : c)) })),
       deleteSubcategory: (id) =>
         update((s) => {
+          // A third-level entry's lines move up to its subcategory; a subcategory takes the entries under it along.
+          const parent = s.subcategories.find((c) => c.id === id)?.parentId;
+          const gone = new Set([id, ...s.subcategories.filter((c) => c.parentId === id).map((c) => c.id)]);
           const drop = <T extends { subcategoryId?: string }>(x: T): T => {
-            if (x.subcategoryId !== id) return x;
+            if (!x.subcategoryId || !gone.has(x.subcategoryId)) return x;
             const { subcategoryId: _gone, ...rest } = x;
-            return rest as T;
+            return (parent ? { ...rest, subcategoryId: parent } : rest) as T;
           };
           return {
             ...s,
-            subcategories: s.subcategories.filter((c) => c.id !== id),
+            subcategories: s.subcategories.filter((c) => !gone.has(c.id)),
             transactions: s.transactions.map(drop),
             items: s.items.map(drop),
             rules: s.rules.map(drop),

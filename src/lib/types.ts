@@ -44,8 +44,12 @@ export const PAYMENTS: { id: Payment; label: string; hint: string }[] = [
   { id: 'manual', label: 'Pay myself', hint: 'You pay it by hand. Add a due day for reminders.' },
 ];
 
-/** A finer bucket inside a category, e.g. Frivolous → "Eating out / food delivery". */
-export type Subcategory = { id: string; categoryId: string; name: string };
+/**
+ * A finer bucket inside a category, e.g. Frivolous → "Eating out / food delivery".
+ * With `parentId` it is a third level under that subcategory (Pawan › Altura Nova Consulting › Santander);
+ * lines and rules then point at it directly.
+ */
+export type Subcategory = { id: string; categoryId: string; name: string; parentId?: string };
 
 /** Someone in the household whose money is tracked: "me" is you; the others are named in Settings. */
 export type Person = { id: string; name: string; /** Their bank, as Enable Banking names it, and its country. */ bank?: string; country?: string };

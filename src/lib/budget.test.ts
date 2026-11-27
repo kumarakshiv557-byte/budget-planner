@@ -698,3 +698,27 @@ test('cash withdrawals never teach a rule; an intrabank transfer keys on the per
   assert.equal(ruleFrom('Cash at Al Bonifacio Lazaro, 15a'), '');
   assert.equal(ruleFrom('TRF CRED INTRABANC P/ Sarbjit Kaur-74722860'), 'sarbjit kaur');
 });
+
+test('a subcategory can have a third level: it groups under its subcategory and splits again in the money flow', async () => {
+  const { subLabel, subLevels } = await import('./budget.ts');
+  const tx = (id: string, amount: number, subcategoryId?: string) =>
+    ({ id, date: '2026-11-20', description: id, amount, categoryId: 'pawan', type: 'variable-one-time', source: 'manual', ...(subcategoryId ? { subcategoryId } : {}) }) as import('./types.ts').Transaction;
+  const s = {
+    ...initialState(),
+    categories: [...initialState().categories, { id: 'pawan', name: 'Pawan', color: '#000' }],
+    subcategories: [
+      { id: 'altura', categoryId: 'pawan', name: 'Altura Nova Consulting' },
+      { id: 'sant', categoryId: 'pawan', name: 'Santander', parentId: 'altura' },
+      { id: 'mill', categoryId: 'pawan', name: 'Millenium', parentId: 'altura' },
+      { id: 'jawed', categoryId: 'pawan', name: 'Jawed mbway' },
+    ],
+    transactions: [tx('a', 2000, 'sant'), tx('b', 500, 'mill'), tx('c', 100, 'altura'), tx('d', 150, 'jawed')],
+  } as BudgetState;
+  assert.equal(subLabel(s.subcategories, 'sant'), 'Altura Nova Consulting › Santander');
+  assert.deepEqual(subLevels(s.subcategories, 'mill'), { sub: 'altura', leaf: 'mill' });
+  const two = moneyFlow(s, '2026-11', 5, { expandCategory: 'pawan' }).nodes.filter((n) => n.kind === 'category').map((n) => [n.sub, n.value]);
+  assert.deepEqual(two, [['altura', 2600], ['jawed', 150]]);
+  const three = moneyFlow(s, '2026-11', 5, { expandCategory: 'pawan', expandCategorySub: 'altura' });
+  assert.deepEqual(three.nodes.filter((n) => n.kind === 'category').map((n) => [n.sub, n.subSub, n.value]), [['altura', 'sant', 2000], ['altura', 'mill', 500], ['altura', '', 100], ['jawed', undefined, 150]]);
+  assert.deepEqual(three.links.filter((l) => l.source === 'cat:pawan:altura:sant').map((l) => [l.target, l.value]), [['type:variable-one-time', 2000]]);
+});

@@ -1,4 +1,4 @@
-import { DEFAULT_INCOME_TAGS, isRecurring, ownerOf, type BudgetItem, type BudgetState, type Category, type Income, type IncomeRule, type ItemType, type Month, type Payment, type Transaction } from './types.ts';
+import { DEFAULT_INCOME_TAGS, isRecurring, ownerOf, type BudgetItem, type BudgetState, type Category, type Income, type IncomeRule, type ItemType, type Month, type Payment, type Subcategory, type Transaction } from './types.ts';
 
 export function monthOf(date: string): Month {
   return date.slice(0, 7);
@@ -375,6 +375,25 @@ export function incomeSubTagsOf(s: Pick<BudgetState, 'income' | 'incomeRules'>, 
   return [...count.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([k]) => k);
 }
 
+/** A category's own subcategories (not the ones under them). */
+export const topSubsOf = (subs: Subcategory[], categoryId: string | null) => subs.filter((x) => x.categoryId === categoryId && !x.parentId);
+/** The third-level entries under a subcategory. */
+export const childSubsOf = (subs: Subcategory[], parentId: string | null | undefined) => (parentId ? subs.filter((x) => x.parentId === parentId) : []);
+/** For a line's subcategory id: its second-level subcategory ('' for none) and the third-level one under it ('' for none). */
+export function subLevels(subs: Subcategory[], id: string | undefined): { sub: string; leaf: string } {
+  if (!id) return { sub: '', leaf: '' };
+  const x = subs.find((s) => s.id === id);
+  return x?.parentId ? { sub: x.parentId, leaf: x.id } : { sub: id, leaf: '' };
+}
+/** "Altura Nova Consulting › Santander", or just the subcategory's name. */
+export function subLabel(subs: Subcategory[], id: string | undefined) {
+  if (!id) return undefined;
+  const x = subs.find((s) => s.id === id);
+  if (!x) return undefined;
+  const parent = x.parentId ? subs.find((s) => s.id === x.parentId) : undefined;
+  return parent ? `${parent.name} › ${x.name}` : x.name;
+}
+
 /** Key of the income node that groups the smaller sources. */
 export const OTHER_INCOME = '__other';
 
@@ -392,7 +411,7 @@ export type FlowLink = { source: string; target: string; value: number };
  * If spending is more than income, a "gap" source covers the difference (savings or untracked money).
  * Refunds can make a category negative; those are left out of the flow.
  */
-export function moneyFlow(state: BudgetState, period: Month | Month[], maxSources = 5, opts: { expand?: string; expandSub?: string; expandCategory?: string } = {}) {
+export function moneyFlow(state: BudgetState, period: Month | Month[], maxSources = 5, opts: { expand?: string; expandSub?: string; expandCategory?: string; /** Inside the expanded category, a subcategory to split into its third level. */ expandCategorySub?: string } = {}) {
   const months = Array.isArray(period) ? period : [period];
   const month = months[months.length - 1];
   const nodes: FlowNode[] = [];
@@ -423,6 +442,8 @@ export function moneyFlow(state: BudgetState, period: Month | Month[], maxSource
   const catType = new Map<string, Map<ItemType, number>>();
   // Per subcategory of the expanded category: total and per-type amounts.
   const subType = new Map<string, Map<ItemType, number>>();
+  // Per third-level entry of the expanded subcategory ('' = lines on the subcategory itself).
+  const leafType = new Map<string, Map<ItemType, number>>();
   // Subscriptions flow into their own category and type, like every other payment.
   for (const t of transactionsInMonths(state.transactions, months)) {
     const c = t.categoryId ?? 'none';
@@ -431,9 +452,15 @@ export function moneyFlow(state: BudgetState, period: Month | Month[], maxSource
     m.set(t.type, (m.get(t.type) ?? 0) + t.amount);
     catType.set(c, m);
     if (opts.expandCategory && c === opts.expandCategory) {
-      const sm = subType.get(t.subcategoryId ?? '') ?? new Map<ItemType, number>();
+      const { sub, leaf } = subLevels(state.subcategories ?? [], t.subcategoryId);
+      const sm = subType.get(sub) ?? new Map<ItemType, number>();
       sm.set(t.type, (sm.get(t.type) ?? 0) + t.amount);
-      subType.set(t.subcategoryId ?? '', sm);
+      subType.set(sub, sm);
+      if (opts.expandCategorySub && sub === opts.expandCategorySub) {
+        const lm = leafType.get(leaf) ?? new Map<ItemType, number>();
+        lm.set(t.type, (lm.get(t.type) ?? 0) + t.amount);
+        leafType.set(leaf, lm);
+      }
     }
   }
   const cats = [...cat.entries()].filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
@@ -514,6 +541,24 @@ export function moneyFlow(state: BudgetState, period: Month | Month[], maxSource
       const scale = v / split.reduce((a, [, , x]) => a + x, 0);
       for (const [sub, m, raw] of split) {
         const x = raw * scale;
+        // An expanded subcategory shows as one block per entry under it (Altura Nova › Santander, …).
+        const leaves =
+          sub && sub === opts.expandCategorySub
+            ? [...leafType.entries()]
+                .map(([leaf, lm]) => [leaf, lm, [...lm.values()].reduce((a, y) => a + y, 0)] as const)
+                .filter(([, , y]) => y > 0)
+                .sort((a, b) => b[2] - a[2])
+            : [];
+        if (leaves.some(([leaf]) => leaf)) {
+          const inner = x / leaves.reduce((a, [, , y]) => a + y, 0);
+          for (const [leaf, lm, y] of leaves) {
+            const id = `cat:${c}:${sub}:${leaf}`;
+            nodes.push({ id, kind: 'category', key: c, sub, subSub: leaf, column: 2, value: round2(y * inner) });
+            links.push({ source: 'total', target: id, value: round2(y * inner) });
+            toTypes(id, lm, y * inner);
+          }
+          continue;
+        }
         const id = `cat:${c}:${sub}`;
         nodes.push({ id, kind: 'category', key: c, sub, column: 2, value: round2(x) });
         links.push({ source: 'total', target: id, value: round2(x) });
