@@ -530,7 +530,7 @@ export default function SpendingScreen() {
               {picks[t.id]?.newCat != null ? (
                 <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: Spacing.two }}>
                   <Field
-                    label="New category"
+                    label="New top-level category (like Essentials)"
                     value={picks[t.id]?.newCat ?? ''}
                     autoFocus
                     onChangeText={(newCat) => setPicks({ ...picks, [t.id]: { ...picks[t.id], newCat } })}
@@ -553,7 +553,7 @@ export default function SpendingScreen() {
                     Subcategory (optional)
                   </ThemedText>
                   <Chips
-                    options={[...subOptions(catOfPick(picks[t.id]?.cat)), { id: 'new', label: '+ New subcategory' }]}
+                    options={[...subOptions(catOfPick(picks[t.id]?.cat)), { id: 'new', label: `+ New subcategory in ${state.categories.find((c) => c.id === catOfPick(picks[t.id]?.cat))?.name ?? 'this category'}` }]}
                     value={picks[t.id]?.newSub != null ? 'new' : topPick(picks[t.id]?.cat)}
                     onChange={(cat) =>
                       cat === 'new' ? setPicks({ ...picks, [t.id]: { ...picks[t.id], newSub: '' } }) : pickFor(t, { cat, newSub: null })

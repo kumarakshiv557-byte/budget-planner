@@ -831,6 +831,25 @@ export function recentlySorted(transactions: Transaction[]): Transaction[] {
 }
 
 /** Send a payment (and, with `alsoOthers`, those sorted alike from the same place) back to "to sort", forgetting the remembered pick. */
+/**
+ * Removes a category made by mistake: its lines go back to "to sort", and its subcategories and
+ * remembered rules go with it. A category that planned budget items still use is kept.
+ */
+export function deleteCategoryIn(s: BudgetState, id: string): BudgetState {
+  if (s.items.some((i) => i.categoryId === id)) return s;
+  return {
+    ...s,
+    categories: s.categories.filter((c) => c.id !== id),
+    subcategories: s.subcategories.filter((x) => x.categoryId !== id),
+    rules: s.rules.filter((r) => r.categoryId !== id),
+    transactions: s.transactions.map((t) => {
+      if (t.categoryId !== id) return t;
+      const { subcategoryId: _s, payment: _p, sortedAt: _t, ...rest } = t;
+      return { ...rest, categoryId: null, type: 'variable-one-time' };
+    }),
+  };
+}
+
 export function unsortIn(s: BudgetState, id: string, alsoOthers: boolean): BudgetState {
   const t = s.transactions.find((x) => x.id === id);
   if (!t) return s;

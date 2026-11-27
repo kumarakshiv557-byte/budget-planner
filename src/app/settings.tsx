@@ -14,7 +14,7 @@ import { useRevolutSync } from '@/lib/use-revolut-sync';
 const CURRENCIES = ['EUR', 'INR', 'GBP', 'USD'].map((c) => ({ id: c, label: c }));
 
 export default function SettingsScreen() {
-  const { state, cloud, renamePerson, updateCategory, setCurrency, resetAll, addCategory, addSubcategory, renameSubcategory, deleteSubcategory } = useBudget();
+  const { state, cloud, renamePerson, updateCategory, setCurrency, resetAll, addCategory, deleteCategory, addSubcategory, renameSubcategory, deleteSubcategory } = useBudget();
   const [newSub, setNewSub] = useState<Record<string, string>>({});
   const [newCat, setNewCat] = useState('');
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
@@ -40,12 +40,29 @@ export default function SettingsScreen() {
 
       <Card
         title="Categories"
-        subtitle="Add or rename categories, and add subcategories (like Eating out under Frivolous). Whether something is recurring or one-time is set on each line, not here.">
+        subtitle="Add, rename or remove categories, and add subcategories (like Eating out under Frivolous). A category used by planned budget items can't be removed. Whether something is recurring or one-time is set on each line, not here.">
         {state.categories.map((c) => (
           <View key={c.id} style={{ gap: Spacing.two, paddingVertical: Spacing.three, borderTopWidth: 1, borderColor: theme.border }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.two }}>
               <View style={{ width: 12, height: 12, borderRadius: 6, backgroundColor: colorFor(c) }} />
               <Field label="Name" value={c.name} onChangeText={(name) => updateCategory(c.id, { name })} />
+              {(() => {
+                const planned = state.items.filter((i) => i.categoryId === c.id).length;
+                const lines = state.transactions.filter((t) => t.categoryId === c.id).length;
+                if (planned) return null;
+                return confirmDelete === `cat:${c.id}` ? (
+                  <Button
+                    label={lines ? `Remove (${lines} back to To sort)` : 'Remove'}
+                    kind="danger"
+                    onPress={() => {
+                      deleteCategory(c.id);
+                      setConfirmDelete(null);
+                    }}
+                  />
+                ) : (
+                  <Button label="Remove" kind="secondary" onPress={() => setConfirmDelete(`cat:${c.id}`)} />
+                );
+              })()}
             </View>
             {topSubsOf(state.subcategories, c.id).map((top) => (
               <View key={top.id} style={{ gap: Spacing.two }}>
