@@ -32,7 +32,8 @@ export function Sankey({
   onSelect: (id: string | null) => void;
 }) {
   const picked = new Set(selected === null ? [] : Array.isArray(selected) ? selected : [selected]);
-  const only = picked.size === 1 ? [...picked][0] : null;
+  // Tapping the one selected block again clears it; a group (a split tag or category) is tapped into instead.
+  const only = typeof selected === 'string' ? selected : null;
   const theme = useTheme();
   const money = useMoney();
   const [box, setBox] = useState(0);

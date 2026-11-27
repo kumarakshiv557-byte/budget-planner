@@ -5,7 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useTheme } from '@/hooks/use-theme';
-import { addMonths, formatMoney, monthLabel } from '@/lib/budget';
+import { addMonths, childSubsOf, formatMoney, monthLabel, subLabel, subLevels, topSubsOf } from '@/lib/budget';
 import { useBudget } from '@/lib/store';
 import type { Category, Month } from '@/lib/types';
 
@@ -167,7 +167,7 @@ export function useCategoryLabel() {
   const { state } = useBudget();
   return (categoryId: string | null, subcategoryId?: string) => {
     const c = state.categories.find((x) => x.id === categoryId)?.name ?? 'Uncategorised';
-    const sub = subcategoryId ? state.subcategories.find((x) => x.id === subcategoryId)?.name : undefined;
+    const sub = subLabel(state.subcategories, subcategoryId);
     return sub ? `${c} › ${sub}` : c;
   };
 }
@@ -184,7 +184,9 @@ export function CategoryPicker({
 }) {
   const { state } = useBudget();
   const colorFor = useCategoryColor();
-  const subs = state.subcategories.filter((x) => x.categoryId === categoryId);
+  const subs = topSubsOf(state.subcategories, categoryId);
+  const { sub: top } = subLevels(state.subcategories, subcategoryId);
+  const children = childSubsOf(state.subcategories, top);
   return (
     <View style={{ gap: Spacing.two }}>
       <Chips
@@ -198,8 +200,18 @@ export function CategoryPicker({
           <Label>Subcategory</Label>
           <Chips
             options={[{ id: '', label: 'None' }, ...subs.map((x) => ({ id: x.id, label: x.name }))]}
-            value={subcategoryId ?? ''}
+            value={top}
             onChange={(id) => onChange(categoryId, id || undefined)}
+          />
+        </>
+      ) : null}
+      {categoryId && children.length ? (
+        <>
+          <Label>Under {subs.find((x) => x.id === top)?.name}</Label>
+          <Chips
+            options={[{ id: top, label: 'None' }, ...children.map((x) => ({ id: x.id, label: x.name }))]}
+            value={subcategoryId ?? top}
+            onChange={(id) => onChange(categoryId, id)}
           />
         </>
       ) : null}

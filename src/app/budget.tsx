@@ -20,7 +20,7 @@ import {
 } from '@/components/ui';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { currentMonth, itemAppliesTo, monthLabel, paymentNote } from '@/lib/budget';
+import { currentMonth, itemAppliesTo, monthLabel, paymentNote, subLabel } from '@/lib/budget';
 import { useBudget } from '@/lib/store';
 import { ITEM_TYPES, PAYMENTS, isRecurring, type BudgetItem, type ItemType, type Payment } from '@/lib/types';
 
@@ -224,7 +224,7 @@ export default function BudgetScreen() {
                   <View style={{ flex: 1 }}>
                     <ThemedText type="small">{i.name}</ThemedText>
                     <ThemedText type="small" themeColor="textSecondary">
-                      {i.subcategoryId ? `${state.subcategories.find((x) => x.id === i.subcategoryId)?.name ?? ''} · ` : ''}
+                      {i.subcategoryId ? `${subLabel(state.subcategories, i.subcategoryId) ?? ''} · ` : ''}
                       {TYPE_LABEL[i.type]}
                       {i.payment ? ` · ${paymentNote(i)}` : ''}
                       {i.endMonth ? ` · until ${monthLabel(i.endMonth, 'short')}` : ''}

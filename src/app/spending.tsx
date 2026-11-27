@@ -22,7 +22,7 @@ import {
 } from '@/components/ui';
 import { Spacing, TypeColors } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { billsCalendar, currentMonth, isTransferLine, monthLabel, newId, paymentNote, recentlySorted, sortedAlike, transactionsIn, transferRuleFrom } from '@/lib/budget';
+import { billsCalendar, childSubsOf, currentMonth, isTransferLine, subLevels, topSubsOf, monthLabel, newId, paymentNote, recentlySorted, sortedAlike, transactionsIn, transferRuleFrom } from '@/lib/budget';
 import { downloadCalendar } from '@/lib/calendar-file';
 import { parseRevolutCsv } from '@/lib/revolut-csv';
 import { pickCsvText } from '@/lib/pick-file';
@@ -206,8 +206,17 @@ export default function SpendingScreen() {
   const catOfPick = (id?: string) =>
     !id ? undefined : id.startsWith('s:') ? state.subcategories.find((x) => x.id === id.slice(2))?.categoryId : id.slice(2);
   const subOptions = (catId?: string) => {
-    const subs = state.subcategories.filter((x) => x.categoryId === catId);
+    const subs = topSubsOf(state.subcategories, catId ?? null);
     return subs.length ? [{ id: `c:${catId}`, label: 'No subcategory' }, ...subs.map((x) => ({ id: `s:${x.id}`, label: x.name }))] : [];
+  };
+  // A picked third-level entry shows its subcategory picked in the row above.
+  const topPick = (id?: string) => (id?.startsWith('s:') ? `s:${subLevels(state.subcategories, id.slice(2)).sub}` : (id ?? null));
+  // The entries under the picked subcategory (Altura Nova Consulting › Santander, …), if it has any.
+  const leafOptions = (id?: string) => {
+    if (!id?.startsWith('s:')) return [];
+    const top = subLevels(state.subcategories, id.slice(2)).sub;
+    const kids = childSubsOf(state.subcategories, top);
+    return kids.length ? [{ id: `s:${top}`, label: 'None' }, ...kids.map((x) => ({ id: `s:${x.id}`, label: x.name }))] : [];
   };
   const typeSwatch = (id: TypePick) => TypeColors[id][dark ? 1 : 0];
   const sortSwatch = (id: string) => {
@@ -545,7 +554,7 @@ export default function SpendingScreen() {
                   </ThemedText>
                   <Chips
                     options={[...subOptions(catOfPick(picks[t.id]?.cat)), { id: 'new', label: '+ New subcategory' }]}
-                    value={picks[t.id]?.newSub != null ? 'new' : (picks[t.id]?.cat ?? null)}
+                    value={picks[t.id]?.newSub != null ? 'new' : topPick(picks[t.id]?.cat)}
                     onChange={(cat) =>
                       cat === 'new' ? setPicks({ ...picks, [t.id]: { ...picks[t.id], newSub: '' } }) : pickFor(t, { cat, newSub: null })
                     }
@@ -568,6 +577,14 @@ export default function SpendingScreen() {
                           setPicks({ ...picks, [t.id]: { ...picks[t.id], cat: `s:${id}`, newSub: null } });
                         }}
                       />
+                    </View>
+                  ) : null}
+                  {leafOptions(picks[t.id]?.cat).length ? (
+                    <View style={{ paddingLeft: Spacing.three, gap: Spacing.one }}>
+                      <ThemedText type="small" themeColor="textSecondary">
+                        Under {state.subcategories.find((x) => `s:${x.id}` === topPick(picks[t.id]?.cat))?.name} (optional)
+                      </ThemedText>
+                      <Chips options={leafOptions(picks[t.id]?.cat)} value={picks[t.id]?.cat ?? null} onChange={(cat) => pickFor(t, { cat, newSub: null })} />
                     </View>
                   ) : null}
                 </View>

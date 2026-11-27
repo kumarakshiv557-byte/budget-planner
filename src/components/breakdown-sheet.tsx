@@ -7,7 +7,7 @@ import { ThemedText } from '@/components/themed-text';
 import { Card, Chips, styles as ui, useCategoryColor, useCategoryLabel, useIsDark, useMoney } from '@/components/ui';
 import { MaxContentWidth, Spacing, TypeColors } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { breakdown, monthLabel, paymentNote, type BreakdownDim, type BreakdownLine, type BreakdownSide, subscriptionsTotal } from '@/lib/budget';
+import { breakdown, monthLabel, paymentNote, subLabel, subLevels, type BreakdownDim, type BreakdownLine, type BreakdownSide, subscriptionsTotal } from '@/lib/budget';
 import { useBudget } from '@/lib/store';
 import { ITEM_TYPES, PAYMENTS, isRecurring, type ItemType, type Month } from '@/lib/types';
 
@@ -51,13 +51,13 @@ export function BreakdownSheet({
       ? TypeColors[key as ItemType][dark ? 1 : 0]
       : colorFor(state.categories.find((c) => c.id === key));
   const group = groups.find((g) => g.key === selected);
-  const subName = (id?: string) => (id ? state.subcategories.find((x) => x.id === id)?.name : undefined);
+  const subName = (id?: string) => subLabel(state.subcategories, id);
   /** Subtotals by subcategory inside one category slice ("Other" for lines without one). */
   const subTotals = (lines: BreakdownLine[]) => {
     const m = new Map<string, { key: string; label: string; total: number; count: number }>();
     for (const l of lines) {
-      const key = l.subcategoryId ?? '';
-      const g = m.get(key) ?? { key, label: subName(l.subcategoryId) ?? 'No subcategory', total: 0, count: 0 };
+      const key = subLevels(state.subcategories, l.subcategoryId).sub;
+      const g = m.get(key) ?? { key, label: subName(key || undefined) ?? 'No subcategory', total: 0, count: 0 };
       g.total += l.amount;
       g.count++;
       m.set(key, g);

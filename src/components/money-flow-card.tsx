@@ -3,10 +3,10 @@ import { Pressable, View } from 'react-native';
 
 import { Sankey } from '@/components/sankey';
 import { ThemedText } from '@/components/themed-text';
-import { Button, Card, Chips, MonthSwitcher, useCategoryColor, useCategoryLabel, useIsDark, useMoney, WhoseFilter } from '@/components/ui';
+import { Button, Card, CategoryPicker, Chips, MonthSwitcher, useCategoryColor, useCategoryLabel, useIsDark, useMoney, WhoseFilter } from '@/components/ui';
 import { Spacing, TypeColors } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { OTHER_INCOME, addMonths, incomeSourceOf, incomeTagLabel, monthLabel, incomeInMonths, monthsBetween, moneyFlow, rangeLabel, transactionsInMonths, type FlowNode } from '@/lib/budget';
+import { OTHER_INCOME, addMonths, incomeSourceOf, incomeTagLabel, monthLabel, incomeInMonths, monthsBetween, moneyFlow, rangeLabel, subLabel, subLevels, transactionsInMonths, type FlowNode } from '@/lib/budget';
 import { useBudget } from '@/lib/store';
 import { ITEM_TYPES, type ItemType, type Month, type Transaction } from '@/lib/types';
 
@@ -46,7 +46,7 @@ export function MoneyFlowCard({ month }: { month: Month }) {
     const n = id ? flow.nodes.find((x) => x.id === id) : undefined;
     if (!id && subSubPick !== null) return setSubSubPick(null);
     if (!id && (expanded || expandedCat) && subPick !== null) return pickSub(null);
-    if (n?.kind === 'income' && n.subSub !== undefined) {
+    if ((n?.kind === 'income' || n?.kind === 'category') && n.subSub !== undefined) {
       setSubSubPick(subSubPick === n.subSub ? null : n.subSub);
       return;
     }
@@ -68,7 +68,7 @@ export function MoneyFlowCard({ month }: { month: Month }) {
   const months =
     span === 'month' ? [month] : span === '6m' ? monthsBetween(addMonths(month, -5), month) : span === '12m' ? monthsBetween(addMonths(month, -11), month) : monthsBetween(from, to);
   const period = rangeLabel(months);
-  const flow = moneyFlow(state, months, 5, { expand: expanded ?? undefined, expandSub: expanded && subPick ? subPick : undefined, expandCategory: expandedCat ?? undefined });
+  const flow = moneyFlow(state, months, 5, { expand: expanded ?? undefined, expandSub: expanded && subPick ? subPick : undefined, expandCategory: expandedCat ?? undefined, expandCategorySub: expandedCat && subPick ? subPick : undefined });
   const catName = (id: string) => state.categories.find((c) => c.id === id)?.name ?? 'Uncategorised';
   const catLabel = useCategoryLabel();
   const subName = (id?: string) => (id ? state.subcategories.find((x) => x.id === id)?.name : undefined);
@@ -86,7 +86,9 @@ export function MoneyFlowCard({ month }: { month: Month }) {
         : n.kind === 'total'
           ? months.length > 1 ? `${monthLabel(months[0], 'short')} – ${monthLabel(months[months.length - 1], 'short')}` : monthLabel(month, 'short')
           : n.kind === 'category'
-            ? n.sub !== undefined
+            ? n.subSub !== undefined
+              ? subName(n.subSub) ?? `Other ${(subName(n.sub) ?? '').toLowerCase()}`
+              : n.sub !== undefined
               ? subName(n.sub) ?? `Other ${catName(n.key).toLowerCase()}`
               : catName(n.key)
             : n.kind === 'leftover'
@@ -130,13 +132,14 @@ export function MoneyFlowCard({ month }: { month: Month }) {
       : node.kind === 'category' || node.kind === 'type'
         ? transactionsInMonths(state.transactions, months)
             .filter((t) => (node.kind === 'category' ? (t.categoryId ?? 'none') === node.key : t.type === node.key))
-            .filter((t) => node.kind !== 'category' || subPick === null || (t.subcategoryId ?? '') === subPick)
+            .filter((t) => node.kind !== 'category' || subPick === null || subLevels(state.subcategories, t.subcategoryId).sub === subPick)
+            .filter((t) => node.kind !== 'category' || subSubPick === null || subLevels(state.subcategories, t.subcategoryId).leaf === subSubPick)
             .map((t) => ({
               id: t.id,
               tx: t,
               note: t.note,
               label: t.description,
-              sub: `${t.date} · ${node.kind === 'category' ? `${subName(t.subcategoryId) ? `${subName(t.subcategoryId)} · ` : ''}${TYPE_LABEL[t.type]}` : catLabel(t.categoryId, t.subcategoryId)}`,
+              sub: `${t.date} · ${node.kind === 'category' ? `${subLabel(state.subcategories, t.subcategoryId) ? `${subLabel(state.subcategories, t.subcategoryId)} · ` : ''}${TYPE_LABEL[t.type]}` : catLabel(t.categoryId, t.subcategoryId)}`,
               amount: t.amount,
             }))
         : [];
@@ -149,8 +152,8 @@ export function MoneyFlowCard({ month }: { month: Month }) {
           const m = new Map<string, { key: string; name: string; total: number; count: number }>();
           for (const t of transactionsInMonths(state.transactions, months)) {
             if ((t.categoryId ?? 'none') !== node.key) continue;
-            const key = t.subcategoryId ?? '';
-            const g = m.get(key) ?? { key, name: subName(t.subcategoryId) ?? 'No subcategory', total: 0, count: 0 };
+            const key = subLevels(state.subcategories, t.subcategoryId).sub;
+            const g = m.get(key) ?? { key, name: subName(key || undefined) ?? 'No subcategory', total: 0, count: 0 };
             g.total += t.amount;
             g.count++;
             m.set(key, g);
@@ -174,9 +177,23 @@ export function MoneyFlowCard({ month }: { month: Month }) {
           })()
         : [];
 
-  // Names under the picked income sub-tag (Staff › Ahmed, …), when it has any.
+  // Names under the picked income sub-tag (Staff › Ahmed, …), or entries under the picked subcategory, when it has any.
   const subSubs =
-    node?.kind === 'income' && subPick
+    node?.kind === 'category' && subPick
+      ? (() => {
+          const m = new Map<string, { key: string; name: string; total: number; count: number }>();
+          for (const t of transactionsInMonths(state.transactions, months)) {
+            const { sub, leaf } = subLevels(state.subcategories, t.subcategoryId);
+            if ((t.categoryId ?? 'none') !== node.key || sub !== subPick) continue;
+            const g = m.get(leaf) ?? { key: leaf, name: subName(leaf || undefined) ?? `Other ${(subName(subPick) ?? '').toLowerCase()}`, total: 0, count: 0 };
+            g.total += t.amount;
+            g.count++;
+            m.set(leaf, g);
+          }
+          const list = [...m.values()].sort((a, b) => b.total - a.total);
+          return list.some((g) => g.key) ? list : [];
+        })()
+      : node?.kind === 'income' && subPick
       ? (() => {
           const m = new Map<string, { key: string; name: string; total: number; count: number }>();
           for (const i of incomeInMonths(state.income, months)) {
@@ -207,7 +224,7 @@ export function MoneyFlowCard({ month }: { month: Month }) {
   return (
     <Card
       title="Where your income went"
-      subtitle={`${period}: income on the left, then categories, then types. Pick whose accounts to show. Tap a block to see what's in it; tapping an income tag splits it into its sub-tags, and tapping a category splits it into its subcategories.`}>
+      subtitle={`${period}: income on the left, then categories, then types. Pick whose accounts to show. Tap a block to see what's in it; tapping an income tag splits it into its sub-tags, and tapping a category splits it into its subcategories (and those into the entries under them).`}>
       <WhoseFilter />
       <Chips options={SPANS} value={span} onChange={(v) => { setSpan(v); select(null); }} />
       {span === 'custom' ? (
@@ -250,7 +267,11 @@ export function MoneyFlowCard({ month }: { month: Month }) {
                     ? pieces.filter((n) => n.sub === subPick).map((n) => n.id)
                     : pieces.map((n) => n.id)
                 : catPieces.length && node?.kind === 'category' && node.key === expandedCat
-                  ? subPick !== null ? `cat:${expandedCat}:${subPick}` : catPieces.map((n) => n.id)
+                  ? subSubPick !== null
+                    ? `cat:${expandedCat}:${subPick}:${subSubPick}`
+                    : subPick !== null
+                      ? catPieces.filter((n) => n.sub === subPick).map((n) => n.id)
+                      : catPieces.map((n) => n.id)
                   : selected
             }
             onSelect={select}
@@ -339,7 +360,6 @@ export function MoneyFlowCard({ month }: { month: Month }) {
           {lines.map((l) => {
             const tx = l.tx;
             const open = !!tx && edit?.id === tx.id;
-            const subsOf = (catId: string | null) => state.subcategories.filter((x) => x.categoryId === catId);
             return (
             <View key={l.id} style={{ borderTopWidth: 1, borderColor: theme.border }}>
             <Pressable
@@ -361,27 +381,11 @@ export function MoneyFlowCard({ month }: { month: Month }) {
             </Pressable>
             {open && edit ? (
               <View style={{ gap: Spacing.one, paddingBottom: Spacing.three }}>
-                <ThemedText type="small" themeColor="textSecondary">
-                  Category
-                </ThemedText>
-                <Chips
-                  options={state.categories.map((c) => ({ id: c.id, label: c.name }))}
-                  value={edit.cat}
-                  swatch={(id) => colorFor(state.categories.find((c) => c.id === id))}
-                  onChange={(cat) => setEdit({ ...edit, cat, sub: null })}
+                <CategoryPicker
+                  categoryId={edit.cat}
+                  subcategoryId={edit.sub ?? undefined}
+                  onChange={(cat, sub) => setEdit({ ...edit, cat, sub: sub ?? null })}
                 />
-                {subsOf(edit.cat).length ? (
-                  <>
-                    <ThemedText type="small" themeColor="textSecondary">
-                      Subcategory (optional)
-                    </ThemedText>
-                    <Chips
-                      options={[{ id: '', label: 'No subcategory' }, ...subsOf(edit.cat).map((x) => ({ id: x.id, label: x.name }))]}
-                      value={edit.sub ?? ''}
-                      onChange={(sub) => setEdit({ ...edit, sub: sub || null })}
-                    />
-                  </>
-                ) : null}
                 <Pressable onPress={() => setEdit({ ...edit, learn: !edit.learn })} accessibilityRole="checkbox" accessibilityState={{ checked: edit.learn }}>
                   <ThemedText type="small">{edit.learn ? '☑' : '☐'} Also sort other payments from this place this way</ThemedText>
                 </Pressable>
