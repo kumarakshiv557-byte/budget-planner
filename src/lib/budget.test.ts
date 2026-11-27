@@ -691,3 +691,10 @@ test('a booking the bank sends twice under entry numbers ending 0001 and 0002 is
   // A different amount under the same booking (e.g. a fee) is kept.
   assert.equal(mergeSynced({ ...s, transactions: first }, [row('eb:acc:202611251321276873650003', 1.2)], ids).length, 1);
 });
+
+test('cash withdrawals never teach a rule; an intrabank transfer keys on the person', () => {
+  assert.equal(ruleFrom('9141613 LEV.NUMERARIO'), '');
+  assert.equal(ruleFrom('ATM Withdrawal'), '');
+  assert.equal(ruleFrom('Cash at Al Bonifacio Lazaro, 15a'), '');
+  assert.equal(ruleFrom('TRF CRED INTRABANC P/ Sarbjit Kaur-74722860'), 'sarbjit kaur');
+});

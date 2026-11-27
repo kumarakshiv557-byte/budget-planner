@@ -542,6 +542,8 @@ export function moneyFlow(state: BudgetState, period: Month | Month[], maxSource
  */
 export function ruleFrom(description: string) {
   const lower = description.toLowerCase();
+  // Cash withdrawals say nothing about what the money was for, so they never teach a rule.
+  if (isCashWithdrawal(lower)) return '';
   const afterPrefix = lower.includes('*') ? lower.slice(lower.lastIndexOf('*') + 1) : lower;
   const words = afterPrefix
     .replace(/[0-9#]+/g, ' ')
@@ -558,11 +560,17 @@ export function ruleFrom(description: string) {
   return words[0].length >= 5 ? words[0] : words.slice(0, 2).join(' ');
 }
 
+/** "9141613 LEV.NUMERARIO", "ATM Withdrawal", "Cash at …": cash out of a machine or a shop till. */
+export function isCashWithdrawal(description: string) {
+  const d = description.toLowerCase().replace(/\s+/g, ' ').trim();
+  return /\blev\.? ?numer[aá]rio\b/.test(d) || /\batm withdrawal\b/.test(d) || /^cash at\b/.test(d) || /\blevantamento\b/.test(d);
+}
+
 /** True for words banks put before the other person's name on a transfer. */
 export const isTransferWord = (w: string) => TRANSFER_WORDS.has(w);
 
 /** Words banks put before the other person's name on a transfer (Portuguese and English). */
-const TRANSFER_WORDS = new Set(['trf.imed.', 'trf.imed', 'anul.trf.imed.', 'anul.trf.imed', 'trf.', 'trf', 'transf.', 'transf', 'transferencia', 'transferência', 'imediata', 'sepa', 'de', 'do', 'da', 'p/', 'from', 'to', 'transfer']);
+const TRANSFER_WORDS = new Set(['trf.imed.', 'trf.imed', 'anul.trf.imed.', 'anul.trf.imed', 'trf.', 'trf', 'transf.', 'transf', 'transferencia', 'transferência', 'imediata', 'sepa', 'de', 'do', 'da', 'p/', 'from', 'to', 'transfer', 'cred', 'intrabanc', 'intrabancaria', 'intrabancária']);
 
 /**
  * Put a transaction in a category (and optionally a subcategory). With `learn`, remember the merchant
