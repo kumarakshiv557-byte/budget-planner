@@ -722,3 +722,22 @@ test('a subcategory can have a third level: it groups under its subcategory and 
   assert.deepEqual(three.nodes.filter((n) => n.kind === 'category').map((n) => [n.sub, n.subSub, n.value]), [['altura', 'sant', 2000], ['altura', 'mill', 500], ['altura', '', 100], ['jawed', undefined, 150]]);
   assert.deepEqual(three.links.filter((l) => l.source === 'cat:pawan:altura:sant').map((l) => [l.target, l.value]), [['type:variable-one-time', 2000]]);
 });
+
+test('removing a category sends its lines back to be sorted and drops its subcategories and rules', async () => {
+  const { deleteCategoryIn } = await import('./budget.ts');
+  const base = initialState();
+  const s = {
+    ...base,
+    categories: [...base.categories, { id: 'fuel', name: 'car fuel', color: '#000' }],
+    subcategories: [...base.subcategories, { id: 'x', categoryId: 'fuel', name: 'BP' }],
+    rules: [{ match: 'bp casal', categoryId: 'fuel', type: 'variable-one-time' }],
+    transactions: [{ id: 't', date: '2026-10-25', description: 'Bp Casal Do Marco', amount: 50, categoryId: 'fuel', subcategoryId: 'x', type: 'recurring-variable', source: 'revolut', sortedAt: 'x' }],
+  } as BudgetState;
+  const out = deleteCategoryIn(s, 'fuel');
+  assert.equal(out.categories.some((c) => c.id === 'fuel'), false);
+  assert.equal(out.subcategories.some((c) => c.id === 'x'), false);
+  assert.deepEqual(out.rules, []);
+  assert.deepEqual(out.transactions[0], { id: 't', date: '2026-10-25', description: 'Bp Casal Do Marco', amount: 50, categoryId: null, type: 'variable-one-time', source: 'revolut' });
+  const planned = { ...s, items: [{ id: 'i', name: 'Fuel', categoryId: 'fuel', type: 'recurring-variable', amount: 80, startMonth: '2026-10' }] } as BudgetState;
+  assert.equal(deleteCategoryIn(planned, 'fuel'), planned);
+});

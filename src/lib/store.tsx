@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AppState, Platform } from 'react-native';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
-import { forPerson, forgetTransferRuleIn, newCategory, markTransferIn, putBackTransferIn, tagIncomeIn, tagNewIncome, newId, recategorizeIn, resortIn, ruleFrom, sortIn, unmarkTransferIn, unsortIn, type SortPick } from './budget.ts';
+import { deleteCategoryIn, forPerson, forgetTransferRuleIn, newCategory, markTransferIn, putBackTransferIn, tagIncomeIn, tagNewIncome, newId, recategorizeIn, resortIn, ruleFrom, sortIn, unmarkTransferIn, unsortIn, type SortPick } from './budget.ts';
 import { cloudApi, decide, type CloudMeta, type CloudStatus } from './cloud.ts';
 import { initialState, migrate } from './defaults.ts';
 import { applyTransfers, SYNC_CONFIG_KEY, type SyncConfig } from './sync.ts';
@@ -62,6 +62,8 @@ type Actions = {
   addSubcategory: (categoryId: string, name: string, parentId?: string) => string;
   renameSubcategory: (id: string, name: string) => void;
   deleteSubcategory: (id: string) => void;
+  /** Removes a category; its lines go back to "to sort". Kept if budget items use it. */
+  deleteCategory: (id: string) => void;
   updateCategory: (id: string, patch: Partial<Pick<Category, 'name'>>) => void;
   setCurrency: (currency: string) => void;
   renamePerson: (id: string, name: string) => void;
@@ -308,6 +310,7 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
             rules: s.rules.map(drop),
           };
         }),
+      deleteCategory: (id) => update((s) => deleteCategoryIn(s, id)),
       updateCategory: (id, patch) =>
         update((s) => ({ ...s, categories: s.categories.map((c) => (c.id === id ? { ...c, ...patch } : c)) })),
       setCurrency: (currency) => update((s) => ({ ...s, currency })),
